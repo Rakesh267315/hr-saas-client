@@ -16,6 +16,7 @@ const adminNav = [
   { label: 'Leaves', href: '/admin/leaves', icon: CalendarOff },
   { label: 'Payroll', href: '/admin/payroll', icon: DollarSign },
   { label: 'Reports', href: '/admin/reports', icon: BarChart3 },
+  { label: 'Settings', href: '/admin/settings', icon: Settings },
 ];
 
 const employeeNav = [

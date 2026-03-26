@@ -88,3 +88,17 @@ export const payrollApi = {
   updateStatus: (id: string, data: object) => api.patch(`/payroll/${id}/status`, data),
   getSummary: (params?: object) => api.get('/payroll/summary', { params }),
 };
+
+// ── Company Settings ──────────────────────────────────────────────────────────
+export const settingsApi = {
+  get: () => api.get('/settings'),
+  update: (data: object) => api.patch('/settings', data),
+};
+
+// ── Breaks ────────────────────────────────────────────────────────────────────
+export const breakApi = {
+  startBreak: (data: object) => api.post('/breaks/start', data),
+  endBreak: (data: object) => api.post('/breaks/end', data),
+  getToday: () => api.get('/breaks/today'),
+  getByEmployee: (id: string) => api.get(`/breaks/employee/${id}`),
+};

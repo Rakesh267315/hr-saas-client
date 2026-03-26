@@ -1,11 +1,11 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useAuthStore } from '@/store/authStore';
-import { attendanceApi, leaveApi, payrollApi } from '@/lib/api';
+import { attendanceApi, leaveApi, payrollApi, breakApi, settingsApi } from '@/lib/api';
 import Badge from '@/components/ui/Badge';
 import { fmtDate, fmtCurrency } from '@/lib/utils';
 import toast from 'react-hot-toast';
-import { Clock, LogIn, LogOut, Calendar, DollarSign } from 'lucide-react';
+import { Clock, LogIn, LogOut, Calendar, DollarSign, Coffee, Building2 } from 'lucide-react';
 
 export default function EmployeeDashboard() {
   const { user, employee } = useAuthStore();
@@ -13,59 +13,89 @@ export default function EmployeeDashboard() {
   const [todayRecord, setTodayRecord] = useState<any>(null);
   const [pendingLeaves, setPendingLeaves] = useState<any[]>([]);
   const [latestPayroll, setLatestPayroll] = useState<any>(null);
-  const [checkingIn, setCheckingIn] = useState(false);
+  const [settings, setSettings] = useState<any>(null);
+  const [breakInfo, setBreakInfo] = useState<{ data: any[]; totalMinutes: number }>({ data: [], totalMinutes: 0 });
+  const [loading, setLoading] = useState(false);
   const now = new Date();
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     if (!employee?._id) return;
     try {
-      const [attSummary, leaves, payrolls] = await Promise.all([
+      const [attSummary, leaves, payrolls, cfg] = await Promise.all([
         attendanceApi.getSummary(employee._id, { month: now.getMonth() + 1, year: now.getFullYear() }),
         leaveApi.getAll({ employeeId: employee._id, status: 'pending' }),
         payrollApi.getAll({ employeeId: employee._id, limit: 1 }),
+        settingsApi.get(),
       ]);
       setSummary(attSummary.data.data);
       setPendingLeaves(leaves.data.data);
       setLatestPayroll(payrolls.data.data[0] || null);
+      setSettings(cfg.data.data);
     } catch {}
-  };
+  }, [employee]);
 
-  const loadToday = async () => {
+  const loadToday = useCallback(async () => {
     if (!employee?._id) return;
     try {
-      const res = await attendanceApi.getByEmployee(employee._id, {
-        month: now.getMonth() + 1, year: now.getFullYear(),
-      });
-      const today = res.data.data.find((r: any) =>
+      const [attRes, brk] = await Promise.all([
+        attendanceApi.getByEmployee(employee._id, { month: now.getMonth() + 1, year: now.getFullYear() }),
+        breakApi.getByEmployee(employee._id),
+      ]);
+      const today = attRes.data.data.find((r: any) =>
         new Date(r.date).toDateString() === now.toDateString()
       );
       setTodayRecord(today || null);
+      setBreakInfo({ data: brk.data.data, totalMinutes: brk.data.totalMinutes });
     } catch {}
-  };
+  }, [employee]);
 
   useEffect(() => { loadData(); loadToday(); }, [employee]);
 
   const doCheckIn = async () => {
-    setCheckingIn(true);
+    setLoading(true);
     try {
       await attendanceApi.checkIn({ employeeId: employee?._id });
-      toast.success('Checked in successfully!');
+      toast.success('Checked in!');
       loadToday();
     } catch (err: any) {
       toast.error(err.response?.data?.message || 'Check-in failed');
-    } finally { setCheckingIn(false); }
+    } finally { setLoading(false); }
   };
 
   const doCheckOut = async () => {
-    setCheckingIn(true);
+    setLoading(true);
     try {
       await attendanceApi.checkOut({ employeeId: employee?._id });
-      toast.success('Checked out successfully!');
+      toast.success('Checked out!');
       loadToday();
     } catch (err: any) {
       toast.error(err.response?.data?.message || 'Check-out failed');
-    } finally { setCheckingIn(false); }
+    } finally { setLoading(false); }
   };
+
+  const doStartBreak = async () => {
+    setLoading(true);
+    try {
+      await breakApi.startBreak({ employeeId: employee?._id });
+      toast.success('Break started');
+      loadToday();
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || 'Failed to start break');
+    } finally { setLoading(false); }
+  };
+
+  const doEndBreak = async () => {
+    setLoading(true);
+    try {
+      await breakApi.endBreak({ employeeId: employee?._id });
+      toast.success('Break ended');
+      loadToday();
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || 'Failed to end break');
+    } finally { setLoading(false); }
+  };
+
+  const activeBreak = breakInfo.data.find((b: any) => !b.endTime);
 
   return (
     <div>
@@ -76,9 +106,23 @@ export default function EmployeeDashboard() {
         <p className="text-gray-500 text-sm mt-0.5">{fmtDate(now, 'EEEE, dd MMMM yyyy')}</p>
       </div>
 
-      {/* Check in/out */}
+      {/* Office timing info */}
+      {settings && (
+        <div className="flex items-center gap-3 bg-blue-50 border border-blue-100 rounded-xl px-4 py-2.5 mb-5 text-sm">
+          <Building2 className="w-4 h-4 text-blue-500 shrink-0" />
+          <span className="text-gray-600">
+            <span className="font-medium text-blue-700">Office Hours:</span> {settings.officeStartTime} – {settings.officeEndTime}
+          </span>
+          <span className="text-gray-300">|</span>
+          <span className="text-gray-600">
+            <span className="font-medium text-blue-700">Weekly Off:</span> {settings.weeklyOffDay}
+          </span>
+        </div>
+      )}
+
+      {/* Check in/out + break */}
       <div className="card mb-6 bg-gradient-to-r from-primary-600 to-primary-700 text-white">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
             <p className="text-primary-100 text-sm">Today's Attendance</p>
             {todayRecord ? (
@@ -97,22 +141,48 @@ export default function EmployeeDashboard() {
               <p className="text-lg font-semibold mt-1">Not checked in yet</p>
             )}
           </div>
-          <div className="flex gap-3">
+          <div className="flex flex-wrap gap-2">
             {!todayRecord?.checkIn && (
-              <button onClick={doCheckIn} disabled={checkingIn} className="flex items-center gap-2 bg-white text-primary-700 font-semibold px-4 py-2 rounded-lg hover:bg-primary-50 transition-colors">
+              <button onClick={doCheckIn} disabled={loading} className="flex items-center gap-2 bg-white text-primary-700 font-semibold px-4 py-2 rounded-lg hover:bg-primary-50 transition-colors">
                 <LogIn className="w-4 h-4" /> Check In
               </button>
             )}
             {todayRecord?.checkIn && !todayRecord?.checkOut && (
-              <button onClick={doCheckOut} disabled={checkingIn} className="flex items-center gap-2 bg-white text-primary-700 font-semibold px-4 py-2 rounded-lg hover:bg-primary-50 transition-colors">
-                <LogOut className="w-4 h-4" /> Check Out
-              </button>
+              <>
+                {!activeBreak ? (
+                  <button onClick={doStartBreak} disabled={loading} className="flex items-center gap-2 bg-amber-400 text-white font-semibold px-4 py-2 rounded-lg hover:bg-amber-500 transition-colors">
+                    <Coffee className="w-4 h-4" /> Start Break
+                  </button>
+                ) : (
+                  <button onClick={doEndBreak} disabled={loading} className="flex items-center gap-2 bg-amber-400 text-white font-semibold px-4 py-2 rounded-lg hover:bg-amber-500 transition-colors animate-pulse">
+                    <Coffee className="w-4 h-4" /> End Break
+                  </button>
+                )}
+                <button onClick={doCheckOut} disabled={loading || !!activeBreak} className="flex items-center gap-2 bg-white text-primary-700 font-semibold px-4 py-2 rounded-lg hover:bg-primary-50 transition-colors disabled:opacity-50">
+                  <LogOut className="w-4 h-4" /> Check Out
+                </button>
+              </>
             )}
             {todayRecord?.checkOut && (
               <span className="text-primary-100 text-sm self-center">Done for today ✓</span>
             )}
           </div>
         </div>
+
+        {/* Break summary */}
+        {breakInfo.data.length > 0 && (
+          <div className="mt-4 pt-4 border-t border-primary-500 flex flex-wrap gap-4 text-sm text-primary-100">
+            <span>Breaks today: <strong className="text-white">{breakInfo.data.length}</strong></span>
+            <span>Total break time: <strong className="text-white">
+              {breakInfo.totalMinutes >= 60
+                ? `${Math.floor(breakInfo.totalMinutes / 60)}h ${breakInfo.totalMinutes % 60}m`
+                : `${breakInfo.totalMinutes}m`}
+            </strong></span>
+            {activeBreak && (
+              <span className="text-amber-300 font-medium">● Currently on break</span>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Monthly summary */}
@@ -132,7 +202,6 @@ export default function EmployeeDashboard() {
 
       {/* Bottom row */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Latest payslip */}
         <div className="card">
           <h3 className="font-semibold text-gray-800 mb-4 flex items-center gap-2">
             <DollarSign className="w-4 h-4 text-green-600" /> Latest Payslip
@@ -162,7 +231,6 @@ export default function EmployeeDashboard() {
           )}
         </div>
 
-        {/* Pending leaves */}
         <div className="card">
           <h3 className="font-semibold text-gray-800 mb-4 flex items-center gap-2">
             <Calendar className="w-4 h-4 text-blue-600" /> My Leave Requests

@@ -1,12 +1,12 @@
 'use client';
-import { useEffect, useState } from 'react';
-import { employeeApi, attendanceApi, leaveApi, payrollApi } from '@/lib/api';
+import { useEffect, useState, useCallback } from 'react';
+import { employeeApi, attendanceApi, leaveApi, payrollApi, settingsApi, breakApi } from '@/lib/api';
 import StatCard from '@/components/ui/StatCard';
 import { useAuthStore } from '@/store/authStore';
 import { fmtCurrency, fmtDate } from '@/lib/utils';
 import {
   Users, Clock, CalendarOff, DollarSign,
-  TrendingUp, UserCheck, UserX, AlertCircle,
+  UserCheck, UserX, Coffee, Building2,
 } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -21,25 +21,37 @@ export default function AdminDashboard() {
   const [todayAtt, setTodayAtt] = useState<any>({});
   const [pendingLeaves, setPendingLeaves] = useState<any[]>([]);
   const [payrollSummary, setPayrollSummary] = useState<any>({});
+  const [settings, setSettings] = useState<any>(null);
+  const [breakData, setBreakData] = useState<{ data: any[]; onBreakCount: number }>({ data: [], onBreakCount: 0 });
   const now = new Date();
 
-  useEffect(() => {
-    const load = async () => {
-      try {
-        const [empStats, att, leaves, payroll] = await Promise.all([
-          employeeApi.getStats(),
-          attendanceApi.getToday(),
-          leaveApi.getAll({ status: 'pending', limit: 5 }),
-          payrollApi.getSummary({ month: now.getMonth() + 1, year: now.getFullYear() }),
-        ]);
-        setStats(empStats.data.data);
-        setTodayAtt(att.data.stats);
-        setPendingLeaves(leaves.data.data);
-        setPayrollSummary(payroll.data.data);
-      } catch {}
-    };
-    load();
+  const load = useCallback(async () => {
+    try {
+      const [empStats, att, leaves, payroll, cfg, brk] = await Promise.all([
+        employeeApi.getStats(),
+        attendanceApi.getToday(),
+        leaveApi.getAll({ status: 'pending', limit: 5 }),
+        payrollApi.getSummary({ month: now.getMonth() + 1, year: now.getFullYear() }),
+        settingsApi.get(),
+        breakApi.getToday(),
+      ]);
+      setStats(empStats.data.data);
+      setTodayAtt(att.data.stats);
+      setPendingLeaves(leaves.data.data);
+      setPayrollSummary(payroll.data.data);
+      setSettings(cfg.data.data);
+      setBreakData({ data: brk.data.data, onBreakCount: brk.data.onBreakCount });
+    } catch {}
   }, []);
+
+  useEffect(() => {
+    load();
+    // Refresh break data every 30s for live durations
+    const interval = setInterval(() => breakApi.getToday().then((r) =>
+      setBreakData({ data: r.data.data, onBreakCount: r.data.onBreakCount })
+    ).catch(() => {}), 30000);
+    return () => clearInterval(interval);
+  }, [load]);
 
   const deptData = stats.byDepartment?.map((d: any) => ({ name: d.name, count: d.count })) || [];
   const attData = [
@@ -55,6 +67,29 @@ export default function AdminDashboard() {
         <h1 className="text-2xl font-bold text-gray-900">Welcome back, {user?.name} 👋</h1>
         <p className="text-gray-500 mt-1">{fmtDate(new Date())} — Here's your HR overview</p>
       </div>
+
+      {/* Office Timing Banner */}
+      {settings && (
+        <div className="flex items-center gap-6 bg-blue-50 border border-blue-100 rounded-xl px-5 py-3 mb-6">
+          <Building2 className="w-5 h-5 text-blue-600 shrink-0" />
+          <div className="flex flex-wrap gap-6 text-sm">
+            <span className="text-gray-600">
+              <span className="font-medium text-blue-700">Office Hours:</span>{' '}
+              {settings.officeStartTime} – {settings.officeEndTime}
+            </span>
+            <span className="text-gray-600">
+              <span className="font-medium text-blue-700">Weekly Off:</span>{' '}
+              {settings.weeklyOffDay}
+            </span>
+            {settings.companyName && (
+              <span className="text-gray-600">
+                <span className="font-medium text-blue-700">Company:</span>{' '}
+                {settings.companyName}
+              </span>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Stat cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6 mb-8">
@@ -86,7 +121,6 @@ export default function AdminDashboard() {
 
       {/* Charts row */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-        {/* Dept bar chart */}
         <div className="card">
           <h3 className="font-semibold text-gray-800 mb-4">Employees by Department</h3>
           <ResponsiveContainer width="100%" height={240}>
@@ -100,7 +134,6 @@ export default function AdminDashboard() {
           </ResponsiveContainer>
         </div>
 
-        {/* Attendance pie */}
         <div className="card">
           <h3 className="font-semibold text-gray-800 mb-4">Today's Attendance</h3>
           <ResponsiveContainer width="100%" height={240}>
@@ -113,6 +146,60 @@ export default function AdminDashboard() {
             </PieChart>
           </ResponsiveContainer>
         </div>
+      </div>
+
+      {/* Break Tracking */}
+      <div className="card mb-8">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="font-semibold text-gray-800 flex items-center gap-2">
+            <Coffee className="w-4 h-4 text-amber-600" /> Break Tracker — Today
+          </h3>
+          <span className="badge bg-amber-100 text-amber-700">{breakData.onBreakCount} on break</span>
+        </div>
+        {breakData.data.length === 0 ? (
+          <p className="text-gray-400 text-sm text-center py-6">No break activity today</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-gray-500 border-b">
+                  <th className="pb-3 font-medium">Employee</th>
+                  <th className="pb-3 font-medium">Designation</th>
+                  <th className="pb-3 font-medium">Breaks</th>
+                  <th className="pb-3 font-medium">Total Break Time</th>
+                  <th className="pb-3 font-medium">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {breakData.data.map((b: any) => (
+                  <tr key={b.employee?._id} className="border-b border-gray-50 hover:bg-gray-50">
+                    <td className="py-3 font-medium">
+                      {b.employee?.firstName} {b.employee?.lastName}
+                      <span className="ml-2 text-xs text-gray-400">{b.employee?.employeeCode}</span>
+                    </td>
+                    <td className="py-3 text-gray-600">{b.employee?.designation || '—'}</td>
+                    <td className="py-3">{b.breakCount}</td>
+                    <td className="py-3">
+                      {b.totalMinutes >= 60
+                        ? `${Math.floor(b.totalMinutes / 60)}h ${b.totalMinutes % 60}m`
+                        : `${b.totalMinutes}m`}
+                    </td>
+                    <td className="py-3">
+                      {b.isOnBreak ? (
+                        <span className="inline-flex items-center gap-1 text-xs bg-amber-100 text-amber-700 px-2 py-1 rounded-full font-medium">
+                          <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+                          On Break
+                        </span>
+                      ) : (
+                        <span className="text-xs bg-gray-100 text-gray-500 px-2 py-1 rounded-full">Done</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
       {/* Pending leaves */}
@@ -138,9 +225,7 @@ export default function AdminDashboard() {
               <tbody>
                 {pendingLeaves.map((l: any) => (
                   <tr key={l._id} className="table-row">
-                    <td className="py-3">
-                      {l.employee?.firstName} {l.employee?.lastName}
-                    </td>
+                    <td className="py-3">{l.employee?.firstName} {l.employee?.lastName}</td>
                     <td className="py-3 capitalize">{l.leaveType}</td>
                     <td className="py-3">{fmtDate(l.startDate)}</td>
                     <td className="py-3">{fmtDate(l.endDate)}</td>
