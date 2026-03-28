@@ -143,18 +143,58 @@ function AddEmployeeModal({ departments, onClose, onSave }: any) {
     createAccount: true, password: 'Hr@123456',
   });
   const [saving, setSaving] = useState(false);
+  const [credentials, setCredentials] = useState<{ email: string; password: string } | null>(null);
 
   const save = async (e: any) => {
     e.preventDefault();
     setSaving(true);
     try {
       await employeeApi.create(form);
-      toast.success('Employee added successfully');
-      onSave();
+      if (form.createAccount) {
+        setCredentials({ email: form.email, password: form.password || 'Hr@123456' });
+      } else {
+        toast.success('Employee added successfully');
+        onSave();
+      }
     } catch (err: any) {
       toast.error(err.response?.data?.message || 'Failed to add employee');
     } finally { setSaving(false); }
   };
+
+  if (credentials) {
+    return (
+      <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
+        <div className="bg-white rounded-2xl w-full max-w-md p-6 text-center">
+          <div className="w-14 h-14 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+            <svg className="w-7 h-7 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
+          </div>
+          <h2 className="text-xl font-bold mb-1">Employee Added!</h2>
+          <p className="text-gray-500 text-sm mb-5">Share these login credentials with the employee:</p>
+          <div className="bg-gray-50 border rounded-xl p-4 text-left space-y-3 mb-5">
+            <div>
+              <p className="text-xs text-gray-500 uppercase tracking-wide mb-1">Login URL</p>
+              <p className="text-sm font-medium text-blue-600 break-all">{window.location.origin}/login</p>
+            </div>
+            <div>
+              <p className="text-xs text-gray-500 uppercase tracking-wide mb-1">Email</p>
+              <p className="text-sm font-medium text-gray-800">{credentials.email}</p>
+            </div>
+            <div>
+              <p className="text-xs text-gray-500 uppercase tracking-wide mb-1">Password</p>
+              <p className="text-sm font-mono font-bold text-gray-800 bg-yellow-50 px-2 py-1 rounded">{credentials.password}</p>
+            </div>
+          </div>
+          <p className="text-xs text-amber-600 mb-5">⚠ Ask the employee to change their password after first login.</p>
+          <button
+            className="btn-primary w-full"
+            onClick={() => { setCredentials(null); onSave(); }}
+          >
+            Done
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
@@ -202,6 +242,19 @@ function AddEmployeeModal({ departments, onClose, onSave }: any) {
             <input type="checkbox" id="ca" checked={form.createAccount} onChange={(e) => setForm({ ...form, createAccount: e.target.checked })} />
             <label htmlFor="ca" className="text-sm text-gray-700">Create login account</label>
           </div>
+          {form.createAccount && (
+            <div className="col-span-2">
+              <label className="label">Login Password <span className="text-red-500">*</span></label>
+              <input
+                type="text"
+                className="input font-mono"
+                value={form.password}
+                onChange={(e) => setForm({ ...form, password: e.target.value })}
+                placeholder="Hr@123456"
+              />
+              <p className="text-xs text-gray-400 mt-1">This password will be shared with the employee for first login.</p>
+            </div>
+          )}
           <div className="col-span-2 flex gap-3 justify-end pt-4 border-t">
             <button type="button" className="btn-secondary" onClick={onClose}>Cancel</button>
             <button type="submit" disabled={saving} className="btn-primary">{saving ? 'Saving...' : 'Add Employee'}</button>
