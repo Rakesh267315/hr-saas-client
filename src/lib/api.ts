@@ -66,7 +66,10 @@ export const attendanceApi = {
   getByEmployee: (id: string, params?: object) => api.get(`/attendance/employee/${id}`, { params }),
   getSummary: (id: string, params?: object) => api.get(`/attendance/employee/${id}/summary`, { params }),
   getToday: () => api.get('/attendance/today'),
+  getAll: (params?: object) => api.get('/attendance/all', { params }),
   markAbsent: (data: object) => api.post('/attendance/mark-absent', data),
+  correct: (id: string, data: object) => api.patch(`/attendance/${id}/correct`, data),
+  unlock: (id: string, data: object) => api.patch(`/attendance/${id}/unlock`, data),
 };
 
 // ── Leaves ────────────────────────────────────────────────────────────────────
