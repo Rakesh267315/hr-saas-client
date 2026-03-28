@@ -9,7 +9,7 @@ export default function Home() {
 
   useEffect(() => {
     if (!user) {
-      router.replace('/login');
+      router.replace('/landing');
     } else if (['admin', 'super_admin', 'hr'].includes(user.role)) {
       router.replace('/admin');
     } else {
