@@ -5,7 +5,7 @@ import { useAuthStore } from '@/store/authStore';
 import { cn, getInitials } from '@/lib/utils';
 import {
   LayoutDashboard, Users, Building2, Clock, CalendarOff,
-  DollarSign, BarChart3, LogOut, Settings, ChevronRight,
+  DollarSign, BarChart3, LogOut, Settings, ChevronRight, ScrollText,
 } from 'lucide-react';
 
 const adminNav = [
@@ -24,6 +24,7 @@ const employeeNav = [
   { label: 'My Attendance', href: '/employee/attendance', icon: Clock },
   { label: 'My Leaves', href: '/employee/leaves', icon: CalendarOff },
   { label: 'My Payslips', href: '/employee/payslips', icon: DollarSign },
+  { label: 'Company Policies', href: '/employee/policies', icon: ScrollText },
 ];
 
 export default function Sidebar() {
