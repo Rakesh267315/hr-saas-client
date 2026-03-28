@@ -5,7 +5,7 @@ import { useAuthStore } from '@/store/authStore';
 import { cn, getInitials } from '@/lib/utils';
 import {
   LayoutDashboard, Users, Building2, Clock, CalendarOff,
-  DollarSign, BarChart3, LogOut, Settings, ChevronRight, ScrollText,
+  IndianRupee, BarChart3, LogOut, Settings, ChevronRight, ScrollText,
 } from 'lucide-react';
 
 const adminNav = [
@@ -14,7 +14,7 @@ const adminNav = [
   { label: 'Departments', href: '/admin/departments', icon: Building2 },
   { label: 'Attendance', href: '/admin/attendance', icon: Clock },
   { label: 'Leaves', href: '/admin/leaves', icon: CalendarOff },
-  { label: 'Payroll', href: '/admin/payroll', icon: DollarSign },
+  { label: 'Payroll', href: '/admin/payroll', icon: IndianRupee },
   { label: 'Reports', href: '/admin/reports', icon: BarChart3 },
   { label: 'Settings', href: '/admin/settings', icon: Settings },
 ];
@@ -23,7 +23,7 @@ const employeeNav = [
   { label: 'Dashboard', href: '/employee', icon: LayoutDashboard },
   { label: 'My Attendance', href: '/employee/attendance', icon: Clock },
   { label: 'My Leaves', href: '/employee/leaves', icon: CalendarOff },
-  { label: 'My Payslips', href: '/employee/payslips', icon: DollarSign },
+  { label: 'My Payslips', href: '/employee/payslips', icon: IndianRupee },
   { label: 'Company Policies', href: '/employee/policies', icon: ScrollText },
 ];
 
