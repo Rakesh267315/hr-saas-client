@@ -7,8 +7,8 @@ export const cn = (...inputs: ClassValue[]) => twMerge(clsx(inputs));
 export const fmtDate = (d: string | Date, fmt = 'dd MMM yyyy') =>
   format(typeof d === 'string' ? parseISO(d) : d, fmt);
 
-export const fmtCurrency = (n: number, currency = 'INR') =>
-  new Intl.NumberFormat('en-IN', { style: 'currency', currency, maximumFractionDigits: 0 }).format(n);
+export const fmtCurrency = (n: number) =>
+  '₹' + new Intl.NumberFormat('en-IN', { maximumFractionDigits: 0 }).format(n);
 
 export const getInitials = (name: string) =>
   name.split(' ').map((n) => n[0]).join('').toUpperCase().slice(0, 2);

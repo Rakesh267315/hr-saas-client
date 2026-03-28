@@ -260,16 +260,22 @@ export default function SettingsPage() {
 
                 <h3 className="text-sm font-semibold text-gray-700 pt-1">Late Penalty Rule</h3>
                 <div className="grid grid-cols-2 gap-4">
-                  <Field label="Late Lates = 0.5 Day Deduction" hint="e.g. 3 = every 3 late arrivals deduct half a day's salary">
-                    <NumInput name="lateCountForHalfDay" value={form.lateCountForHalfDay} onChange={onChange} min={1} max={30} />
+                  <Field label="Late Lates = 0.5 Day Deduction" hint="e.g. 3 = every 3 late arrivals deduct half a day's salary. Set 0 to disable.">
+                    <NumInput name="lateCountForHalfDay" value={form.lateCountForHalfDay} onChange={onChange} min={0} max={30} />
                   </Field>
-                  <Field label="Overtime Multiplier" hint="e.g. 1.5 = 1.5× hourly rate for OT">
-                    <NumInput name="overtimeMultiplier" value={form.overtimeMultiplier} onChange={onChange} min={1} max={3} step={0.1} />
+                  <Field label="Overtime Multiplier" hint="e.g. 1.5 = 1.5× hourly rate for OT. Set 0 to disable.">
+                    <NumInput name="overtimeMultiplier" value={form.overtimeMultiplier} onChange={onChange} min={0} max={3} step={0.1} />
                   </Field>
                 </div>
                 <div className="bg-gray-50 rounded-lg p-3 text-xs text-gray-600">
-                  <p><strong>Late penalty example</strong> (with {form.lateCountForHalfDay} lates = 0.5 day):</p>
-                  <p className="mt-1">If employee is late {form.lateCountForHalfDay * 2} times → {form.lateCountForHalfDay * 2 / form.lateCountForHalfDay * 0.5} day(s) deducted from salary.</p>
+                  {form.lateCountForHalfDay > 0 ? (
+                    <>
+                      <p><strong>Late penalty example</strong> (with {form.lateCountForHalfDay} lates = 0.5 day):</p>
+                      <p className="mt-1">If employee is late {form.lateCountForHalfDay * 2} times → {form.lateCountForHalfDay * 2 / form.lateCountForHalfDay * 0.5} day(s) deducted from salary.</p>
+                    </>
+                  ) : (
+                    <p><strong>Late penalty is disabled.</strong> No deduction will be applied for late arrivals.</p>
+                  )}
                 </div>
               </>
             )}
