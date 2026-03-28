@@ -147,6 +147,10 @@ function AddEmployeeModal({ departments, onClose, onSave }: any) {
 
   const save = async (e: any) => {
     e.preventDefault();
+    if (form.createAccount && !form.email.trim()) {
+      toast.error('Email is required to create a login account');
+      return;
+    }
     setSaving(true);
     try {
       await employeeApi.create(form);
@@ -203,12 +207,12 @@ function AddEmployeeModal({ departments, onClose, onSave }: any) {
         <form onSubmit={save} className="grid grid-cols-2 gap-4">
           {[
             { label: 'First Name', key: 'firstName', required: true },
-            { label: 'Last Name', key: 'lastName', required: true },
-            { label: 'Email', key: 'email', type: 'email', required: true },
+            { label: 'Last Name', key: 'lastName' },
+            { label: 'Email', key: 'email', type: 'email' },
             { label: 'Phone', key: 'phone' },
-            { label: 'Designation', key: 'designation', required: true },
-            { label: 'Joining Date', key: 'joiningDate', type: 'date', required: true },
-            { label: 'Base Salary', key: 'baseSalary', type: 'number', required: true },
+            { label: 'Designation', key: 'designation' },
+            { label: 'Joining Date', key: 'joiningDate', type: 'date' },
+            { label: 'Base Salary', key: 'baseSalary', type: 'number' },
             { label: 'Work Start Time', key: 'workStartTime', type: 'time' },
           ].map(({ label, key, type = 'text', required }) => (
             <div key={key}>
@@ -223,8 +227,8 @@ function AddEmployeeModal({ departments, onClose, onSave }: any) {
             </div>
           ))}
           <div>
-            <label className="label">Department <span className="text-red-500">*</span></label>
-            <select className="input" required value={form.department} onChange={(e) => setForm({ ...form, department: e.target.value })}>
+            <label className="label">Department</label>
+            <select className="input" value={form.department} onChange={(e) => setForm({ ...form, department: e.target.value })}>
               <option value="">Select...</option>
               {departments.map((d: any) => <option key={d._id} value={d._id}>{d.name}</option>)}
             </select>
