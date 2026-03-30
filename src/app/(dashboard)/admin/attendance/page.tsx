@@ -1,23 +1,29 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { attendanceApi, employeeApi } from '@/lib/api';
+import { usePersistState } from '@/lib/hooks';
 import Badge from '@/components/ui/Badge';
 import { fmtDate } from '@/lib/utils';
 import toast from 'react-hot-toast';
-import { RefreshCw, Users, Clock, Edit2, Unlock, Lock, AlertCircle, X, Save } from 'lucide-react';
+import { RefreshCw, Users, Clock, Edit2, Unlock, Lock, AlertCircle, X, Save, Calculator } from 'lucide-react';
 
 const STATUSES = ['present', 'late', 'half_day', 'absent', 'on_leave'];
 
 // ── Correction Modal ────────────────────────────────────────────────────────
 function CorrectionModal({ record, onClose, onSave }: { record: any; onClose: () => void; onSave: () => void }) {
-  const toLocal = (iso: string | null) => {
+  // Timezone-safe: read UTC ISO → display as local, submit as UTC ISO
+  // Use the stored ISO string directly in datetime-local (browser handles local display)
+  const toDatetimeLocal = (iso: string | null) => {
     if (!iso) return '';
+    // datetime-local needs format: YYYY-MM-DDTHH:MM  (no seconds, no Z)
     const d = new Date(iso);
-    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}T${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+    const pad = (n: number) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
   };
+
   const [form, setForm] = useState({
-    checkIn: toLocal(record.checkIn),
-    checkOut: toLocal(record.checkOut),
+    checkIn: toDatetimeLocal(record.checkIn),
+    checkOut: toDatetimeLocal(record.checkOut),
     status: record.status || 'present',
     notes: record.notes || '',
     editReason: '',
@@ -27,17 +33,20 @@ function CorrectionModal({ record, onClose, onSave }: { record: any; onClose: ()
   const save = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!form.editReason.trim()) return toast.error('Edit reason is required');
+    if (form.checkIn && form.checkOut && new Date(form.checkIn) >= new Date(form.checkOut))
+      return toast.error('Check-out time must be after check-in time');
     setSaving(true);
     try {
       await attendanceApi.correct(record._id, {
         checkIn: form.checkIn ? new Date(form.checkIn).toISOString() : null,
         checkOut: form.checkOut ? new Date(form.checkOut).toISOString() : null,
         status: form.status,
-        notes: form.notes,
-        editReason: form.editReason,
+        notes: form.notes.trim(),
+        editReason: form.editReason.trim(),
       });
-      toast.success('Attendance corrected');
-      onSave();
+      toast.success('Attendance corrected successfully');
+      onSave();   // triggers load() in parent — refreshes table
+      onClose();
     } catch (err: any) {
       toast.error(err.response?.data?.message || 'Failed to correct attendance');
     } finally { setSaving(false); }
@@ -170,7 +179,7 @@ export default function AdminAttendancePage() {
   const [records, setRecords] = useState<any[]>([]);
   const [stats, setStats] = useState<any>({});
   const [loading, setLoading] = useState(true);
-  const [viewDate, setViewDate] = useState(new Date().toISOString().split('T')[0]);
+  const [viewDate, setViewDate] = usePersistState('att_viewDate', new Date().toISOString().split('T')[0]);
   const [editRecord, setEditRecord] = useState<any>(null);
   const [unlockRecord, setUnlockRecord] = useState<any>(null);
 
@@ -187,8 +196,9 @@ export default function AdminAttendancePage() {
         setRecords(data);
         setStats({
           present: data.filter((r: any) => ['present','late'].includes(r.status)).length,
-          late: data.filter((r: any) => r.status === 'late').length,
-          absent: data.filter((r: any) => r.status === 'absent').length,
+          // Count late: status=late OR status=present with actual late_minutes (legacy records)
+          late:    data.filter((r: any) => r.status === 'late' || (r.lateMinutes > 0 && r.status === 'present')).length,
+          absent:  data.filter((r: any) => r.status === 'absent').length,
           onLeave: data.filter((r: any) => r.status === 'on_leave').length,
         });
       }
@@ -204,6 +214,14 @@ export default function AdminAttendancePage() {
     } catch { toast.error('Failed to mark absent'); }
   };
 
+  const recalculate = async () => {
+    try {
+      const res = await attendanceApi.recalculate(viewDate);
+      toast.success(res.data.message || 'Late minutes recalculated');
+      load();
+    } catch { toast.error('Failed to recalculate'); }
+  };
+
   useEffect(() => { load(); }, [viewDate]);
 
   return (
@@ -217,6 +235,10 @@ export default function AdminAttendancePage() {
           <input type="date" value={viewDate}
             onChange={e => setViewDate(e.target.value)}
             className="input text-sm" />
+          <button onClick={recalculate} title="Fix late minutes using correct IST timezone"
+            className="btn-secondary text-sm flex items-center gap-2 text-orange-600 border-orange-300 hover:bg-orange-50">
+            <Calculator className="w-4 h-4" /> Recalculate Late
+          </button>
           <button onClick={markAbsent} className="btn-secondary text-sm flex items-center gap-2">
             <Users className="w-4 h-4" /> Mark Absent
           </button>
@@ -322,7 +344,7 @@ export default function AdminAttendancePage() {
 
       {/* Modals */}
       {editRecord && (
-        <CorrectionModal record={editRecord} onClose={() => setEditRecord(null)} onSave={() => { setEditRecord(null); load(); }} />
+        <CorrectionModal record={editRecord} onClose={() => setEditRecord(null)} onSave={() => load()} />
       )}
       {unlockRecord && (
         <UnlockModal record={unlockRecord} onClose={() => setUnlockRecord(null)} onSave={() => { setUnlockRecord(null); load(); }} />

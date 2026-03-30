@@ -1,9 +1,10 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { settingsApi } from '@/lib/api';
+import { useSettingsStore } from '@/store/settingsStore';
 import toast from 'react-hot-toast';
 import {
-  Building2, Clock, UserCheck, Calendar, Banknote, FileText, Save, ChevronRight,
+  Building2, Clock, UserCheck, Calendar, Banknote, FileText, Save, ChevronRight, ScanFace,
 } from 'lucide-react';
 
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -37,11 +38,14 @@ const DEFAULT: Record<string, any> = {
   taxThreshold: 50000,
   // Leave
   monthlyLeaveLimit: 2,
+  casualLeaveLimit: 2,
   sickLeaveLimit: 1,
   leaveIsPaid: true,
   leaveApprovalRequired: true,
   // Policies
   companyPolicies: '',
+  // Face Recognition
+  faceRecognitionEnabled: false,
 };
 
 function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
@@ -68,6 +72,7 @@ export default function SettingsPage() {
   const [tab, setTab] = useState('office');
   const [form, setForm] = useState<Record<string, any>>(DEFAULT);
   const [saving, setSaving] = useState(false);
+  const { setSettings } = useSettingsStore();
 
   useEffect(() => {
     settingsApi.get().then((r) => {
@@ -90,6 +95,8 @@ export default function SettingsPage() {
     setSaving(true);
     try {
       await settingsApi.update(form);
+      // Update global store so sidebar/header reflect new company name instantly
+      if (form.companyName) setSettings({ companyName: form.companyName });
       toast.success('Settings saved successfully!');
     } catch (err: any) {
       toast.error(err.response?.data?.message || 'Failed to save settings');
@@ -177,6 +184,38 @@ export default function SettingsPage() {
                 <Field label="Absent After (minutes late)" hint="If late by more than this, employee is marked Absent.">
                   <NumInput name="absentAfterMinutes" value={form.absentAfterMinutes} onChange={onChange} min={60} max={600} />
                 </Field>
+
+                {/* ── Face Recognition Toggle ──────────────────────────────────── */}
+                <div className={`rounded-xl border-2 p-4 transition-colors ${form.faceRecognitionEnabled ? 'border-blue-400 bg-blue-50' : 'border-gray-200 bg-gray-50'}`}>
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="flex items-start gap-3">
+                      <div className={`p-2 rounded-lg ${form.faceRecognitionEnabled ? 'bg-blue-100' : 'bg-gray-200'}`}>
+                        <ScanFace className={`w-5 h-5 ${form.faceRecognitionEnabled ? 'text-blue-600' : 'text-gray-500'}`} />
+                      </div>
+                      <div>
+                        <p className="text-sm font-semibold text-gray-800">Face Recognition Attendance</p>
+                        <p className="text-xs text-gray-500 mt-0.5">
+                          {form.faceRecognitionEnabled
+                            ? '🔐 Employees must verify face to check in/out. Normal buttons are blocked.'
+                            : '🔓 Normal check-in/out is active. Face recognition is optional.'}
+                        </p>
+                        {form.faceRecognitionEnabled && (
+                          <p className="text-xs text-orange-600 font-medium mt-1">
+                            ⚠️ Employees without a registered face cannot check in until you register their face.
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                    {/* Toggle switch */}
+                    <button
+                      type="button"
+                      onClick={() => set('faceRecognitionEnabled', !form.faceRecognitionEnabled)}
+                      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors shrink-0 ${form.faceRecognitionEnabled ? 'bg-blue-600' : 'bg-gray-300'}`}
+                    >
+                      <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${form.faceRecognitionEnabled ? 'translate-x-6' : 'translate-x-1'}`} />
+                    </button>
+                  </div>
+                </div>
               </>
             )}
 
@@ -185,11 +224,16 @@ export default function SettingsPage() {
               <>
                 <h2 className="text-base font-semibold text-gray-800 border-b pb-2">Leave Policy</h2>
                 <div className="grid grid-cols-2 gap-4">
-                  <Field label="Monthly Leave Limit" hint="Max casual/annual leaves per month per employee.">
-                    <NumInput name="monthlyLeaveLimit" value={form.monthlyLeaveLimit} onChange={onChange} min={0} max={30} />
+                  <Field label="Casual Leave — CL (per month)" hint="Max CL days allowed per employee per month.">
+                    <NumInput name="casualLeaveLimit" value={form.casualLeaveLimit} onChange={onChange} min={0} max={30} />
                   </Field>
-                  <Field label="Sick Leave Limit (per month)" hint="Max sick leaves allowed per month.">
+                  <Field label="Sick Leave — SL (per month)" hint="Max SL days allowed per employee per month.">
                     <NumInput name="sickLeaveLimit" value={form.sickLeaveLimit} onChange={onChange} min={0} max={30} />
+                  </Field>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <Field label="Annual / Other Leave Limit" hint="Max annual/other leaves per month per employee.">
+                    <NumInput name="monthlyLeaveLimit" value={form.monthlyLeaveLimit} onChange={onChange} min={0} max={30} />
                   </Field>
                 </div>
                 <div className="space-y-3 pt-1">

@@ -1,71 +1,204 @@
 'use client';
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import { employeeApi, attendanceApi, leaveApi, payrollApi, settingsApi, breakApi } from '@/lib/api';
 import StatCard from '@/components/ui/StatCard';
 import { useAuthStore } from '@/store/authStore';
-import { fmtCurrency, fmtDate } from '@/lib/utils';
+import { fmtCurrency, fmtDate, cn } from '@/lib/utils';
 import {
-  Users, Clock, CalendarOff, DollarSign,
+  Users, CalendarOff, IndianRupee,
   UserCheck, UserX, Coffee, Building2,
+  ChevronDown, Calendar,
 } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, Legend,
 } from 'recharts';
+import { format, subDays, startOfWeek, startOfMonth } from 'date-fns';
 
-const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6'];
+// ── Date preset types ─────────────────────────────────────────────────────────
+type DatePreset = 'today' | 'yesterday' | 'week' | 'month' | 'custom';
 
+const PRESETS: { key: DatePreset; label: string }[] = [
+  { key: 'today',     label: 'Today' },
+  { key: 'yesterday', label: 'Yesterday' },
+  { key: 'week',      label: 'This Week' },
+  { key: 'month',     label: 'This Month' },
+  { key: 'custom',    label: 'Custom' },
+];
+
+function getDateRange(preset: DatePreset, custom: string): { from: string; to: string } {
+  const today = new Date();
+  const fmt = (d: Date) => format(d, 'yyyy-MM-dd');
+  switch (preset) {
+    case 'today':     return { from: fmt(today), to: fmt(today) };
+    case 'yesterday': { const d = subDays(today, 1); return { from: fmt(d), to: fmt(d) }; }
+    case 'week':      return { from: fmt(startOfWeek(today, { weekStartsOn: 1 })), to: fmt(today) };
+    case 'month':     return { from: fmt(startOfMonth(today)), to: fmt(today) };
+    case 'custom':    return { from: custom, to: custom };
+  }
+}
+
+function computeAttStats(records: any[]) {
+  return {
+    // present includes both 'present' and 'late' statuses
+    present: records.filter(r => ['present', 'late'].includes(r.status)).length,
+    absent:  records.filter(r => r.status === 'absent').length,
+    // late: status='late' OR status='present' with actual late_minutes recorded (covers legacy records)
+    late:    records.filter(r => r.status === 'late' || (r.lateMinutes > 0 && r.status === 'present')).length,
+    onLeave: records.filter(r => r.status === 'on_leave').length,
+  };
+}
+
+// ── Date Filter Bar ───────────────────────────────────────────────────────────
+function DateFilterBar({
+  preset, onPreset, customDate, onCustom,
+}: {
+  preset: DatePreset;
+  onPreset: (p: DatePreset) => void;
+  customDate: string;
+  onCustom: (d: string) => void;
+}) {
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <div className="flex items-center gap-1 bg-gray-100 rounded-xl p-1">
+        {PRESETS.map(({ key, label }) => (
+          <button
+            key={key}
+            onClick={() => onPreset(key)}
+            className={cn(
+              'px-3 py-1.5 rounded-lg text-sm font-medium transition-all duration-150',
+              preset === key
+                ? 'bg-white text-blue-700 shadow-sm font-semibold'
+                : 'text-gray-500 hover:text-gray-700'
+            )}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      {preset === 'custom' && (
+        <div className="flex items-center gap-1.5">
+          <Calendar className="w-4 h-4 text-gray-400" />
+          <input
+            type="date"
+            value={customDate}
+            onChange={e => onCustom(e.target.value)}
+            className="input text-sm py-1.5 w-40"
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Main Dashboard ────────────────────────────────────────────────────────────
 export default function AdminDashboard() {
   const { user } = useAuthStore();
-  const [stats, setStats] = useState<any>({});
-  const [todayAtt, setTodayAtt] = useState<any>({});
+
+  // Data
+  const [stats, setStats]               = useState<any>({});
+  const [attRecords, setAttRecords]     = useState<any[]>([]);
   const [pendingLeaves, setPendingLeaves] = useState<any[]>([]);
   const [payrollSummary, setPayrollSummary] = useState<any>({});
-  const [settings, setSettings] = useState<any>(null);
-  const [breakData, setBreakData] = useState<{ data: any[]; onBreakCount: number }>({ data: [], onBreakCount: 0 });
-  const now = new Date();
+  const [settings, setSettings]         = useState<any>(null);
+  const [breakData, setBreakData]       = useState<{ data: any[]; onBreakCount: number }>({ data: [], onBreakCount: 0 });
+  const [loading, setLoading]           = useState(false);
 
-  const load = useCallback(async () => {
+  // Date filter state
+  const [preset, setPreset]         = useState<DatePreset>('today');
+  const [customDate, setCustomDate] = useState(format(new Date(), 'yyyy-MM-dd'));
+
+  const now = new Date();
+  const dateRange = useMemo(() => getDateRange(preset, customDate), [preset, customDate]);
+  const isToday = preset === 'today';
+
+  // Label for the header
+  const dateLabel = useMemo(() => {
+    if (preset === 'today') return "Today's Overview";
+    if (preset === 'yesterday') return "Yesterday's Overview";
+    if (preset === 'week') return 'This Week';
+    if (preset === 'month') return 'This Month';
+    return fmtDate(customDate);
+  }, [preset, customDate]);
+
+  // ── Loaders ──────────────────────────────────────────────────────────────
+  const loadStatic = useCallback(async () => {
     try {
-      const [empStats, att, leaves, payroll, cfg, brk] = await Promise.all([
+      const [empStats, leaves, payroll, cfg] = await Promise.all([
         employeeApi.getStats(),
-        attendanceApi.getToday(),
         leaveApi.getAll({ status: 'pending', limit: 5 }),
         payrollApi.getSummary({ month: now.getMonth() + 1, year: now.getFullYear() }),
         settingsApi.get(),
-        breakApi.getToday(),
       ]);
       setStats(empStats.data.data);
-      setTodayAtt(att.data.stats);
       setPendingLeaves(leaves.data.data);
       setPayrollSummary(payroll.data.data);
       setSettings(cfg.data.data);
-      setBreakData({ data: brk.data.data, onBreakCount: brk.data.onBreakCount });
     } catch {}
   }, []);
 
+  const loadDateData = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [attRes] = await Promise.all([
+        attendanceApi.getAll({ from: dateRange.from, to: dateRange.to }),
+      ]);
+      setAttRecords(attRes.data.data || []);
+
+      // Break tracker: only fetch for today
+      if (isToday) {
+        const brk = await breakApi.getToday();
+        setBreakData({ data: brk.data.data, onBreakCount: brk.data.onBreakCount });
+      } else {
+        setBreakData({ data: [], onBreakCount: 0 });
+      }
+    } catch {
+      setAttRecords([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [dateRange, isToday]);
+
+  useEffect(() => { loadStatic(); }, [loadStatic]);
+  useEffect(() => { loadDateData(); }, [loadDateData]);
+
+  // Auto-refresh break data every 30s (today only)
   useEffect(() => {
-    load();
-    // Refresh break data every 30s for live durations
-    const interval = setInterval(() => breakApi.getToday().then((r) =>
-      setBreakData({ data: r.data.data, onBreakCount: r.data.onBreakCount })
-    ).catch(() => {}), 30000);
+    if (!isToday) return;
+    const interval = setInterval(() =>
+      breakApi.getToday().then(r =>
+        setBreakData({ data: r.data.data, onBreakCount: r.data.onBreakCount })
+      ).catch(() => {}), 30000
+    );
     return () => clearInterval(interval);
-  }, [load]);
+  }, [isToday]);
+
+  // ── Derived ──────────────────────────────────────────────────────────────
+  const todayAtt = useMemo(() => computeAttStats(attRecords), [attRecords]);
 
   const deptData = stats.byDepartment?.map((d: any) => ({ name: d.name, count: d.count })) || [];
-  const attData = [
-    { name: 'Present', value: todayAtt.present || 0, color: '#10b981' },
-    { name: 'Absent', value: todayAtt.absent || 0, color: '#ef4444' },
-    { name: 'Late', value: todayAtt.late || 0, color: '#f59e0b' },
-    { name: 'On Leave', value: todayAtt.onLeave || 0, color: '#3b82f6' },
+
+  const attChartData = [
+    { name: 'Present', value: todayAtt.present, color: '#10b981' },
+    { name: 'Absent',  value: todayAtt.absent,  color: '#ef4444' },
+    { name: 'Late',    value: todayAtt.late,     color: '#f59e0b' },
+    { name: 'On Leave',value: todayAtt.onLeave,  color: '#3b82f6' },
   ];
 
   return (
     <div>
-      <div className="mb-8">
-        <h1 className="text-2xl font-bold text-gray-900">Welcome back, {user?.name} 👋</h1>
-        <p className="text-gray-500 mt-1">{fmtDate(new Date())} — Here's your HR overview</p>
+      {/* ── Header ── */}
+      <div className="flex flex-col sm:flex-row sm:items-start gap-4 mb-6">
+        <div className="flex-1">
+          <h1 className="text-2xl font-bold text-gray-900">Welcome back, {user?.name} 👋</h1>
+          <p className="text-gray-500 mt-0.5 text-sm">{fmtDate(new Date())} — {dateLabel}</p>
+        </div>
+        <DateFilterBar
+          preset={preset}
+          onPreset={(p) => { setPreset(p); }}
+          customDate={customDate}
+          onCustom={(d) => setCustomDate(d)}
+        />
       </div>
 
       {/* Office Timing Banner */}
@@ -91,35 +224,36 @@ export default function AdminDashboard() {
         </div>
       )}
 
-      {/* Stat cards */}
+      {/* ── Top Stat Cards ── */}
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6 mb-8">
-        <StatCard title="Total Employees" value={stats.total || 0} icon={Users} color="blue" />
-        <StatCard title="Active Employees" value={stats.active || 0} icon={UserCheck} color="green" />
-        <StatCard title="On Leave" value={stats.onLeave || 0} icon={UserX} color="orange" />
-        <StatCard
-          title="Monthly Payroll"
-          value={fmtCurrency(payrollSummary.totalNet || 0)}
-          icon={DollarSign}
-          color="purple"
-        />
+        <StatCard title="Total Employees"  value={stats.total || 0}                     icon={Users}      color="blue" />
+        <StatCard title="Active Employees" value={stats.active || 0}                    icon={UserCheck}  color="green" />
+        <StatCard title="On Leave"         value={stats.onLeave || 0}                   icon={UserX}      color="orange" />
+        <StatCard title="Monthly Payroll"  value={fmtCurrency(payrollSummary.totalNet || 0)} icon={IndianRupee} color="purple" />
       </div>
 
-      {/* Today attendance */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
+      {/* ── Attendance Summary for selected date ── */}
+      <div className={cn(
+        'grid grid-cols-1 md:grid-cols-4 gap-4 mb-8 transition-opacity duration-200',
+        loading && 'opacity-50 pointer-events-none'
+      )}>
         {[
-          { label: 'Present Today', val: todayAtt.present || 0, color: 'text-green-600', bg: 'bg-green-50' },
-          { label: 'Absent Today', val: todayAtt.absent || 0, color: 'text-red-600', bg: 'bg-red-50' },
-          { label: 'Late Today', val: todayAtt.late || 0, color: 'text-orange-600', bg: 'bg-orange-50' },
-          { label: 'On Leave', val: todayAtt.onLeave || 0, color: 'text-blue-600', bg: 'bg-blue-50' },
+          { label: isToday ? 'Present Today' : 'Present', val: todayAtt.present, color: 'text-green-600', bg: 'bg-green-50' },
+          { label: isToday ? 'Absent Today'  : 'Absent',  val: todayAtt.absent,  color: 'text-red-600',   bg: 'bg-red-50' },
+          { label: isToday ? 'Late Today'    : 'Late',    val: todayAtt.late,    color: 'text-orange-600',bg: 'bg-orange-50' },
+          { label: 'On Leave',                            val: todayAtt.onLeave, color: 'text-blue-600',  bg: 'bg-blue-50' },
         ].map(({ label, val, color, bg }) => (
           <div key={label} className={`card text-center ${bg}`}>
-            <p className={`text-3xl font-bold ${color}`}>{val}</p>
+            {loading
+              ? <div className="w-8 h-8 border-2 border-gray-300 border-t-gray-500 rounded-full animate-spin mx-auto my-1" />
+              : <p className={`text-3xl font-bold ${color}`}>{val}</p>
+            }
             <p className="text-sm text-gray-600 mt-1">{label}</p>
           </div>
         ))}
       </div>
 
-      {/* Charts row */}
+      {/* ── Charts Row ── */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
         <div className="card">
           <h3 className="font-semibold text-gray-800 mb-4">Employees by Department</h3>
@@ -135,74 +269,88 @@ export default function AdminDashboard() {
         </div>
 
         <div className="card">
-          <h3 className="font-semibold text-gray-800 mb-4">Today's Attendance</h3>
-          <ResponsiveContainer width="100%" height={240}>
-            <PieChart>
-              <Pie data={attData} cx="50%" cy="50%" innerRadius={60} outerRadius={90} paddingAngle={3} dataKey="value">
-                {attData.map((entry, i) => <Cell key={i} fill={entry.color} />)}
-              </Pie>
-              <Legend />
-              <Tooltip />
-            </PieChart>
-          </ResponsiveContainer>
-        </div>
-      </div>
-
-      {/* Break Tracking */}
-      <div className="card mb-8">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="font-semibold text-gray-800 flex items-center gap-2">
-            <Coffee className="w-4 h-4 text-amber-600" /> Break Tracker — Today
+          <h3 className="font-semibold text-gray-800 mb-1">
+            Attendance — {dateLabel}
           </h3>
-          <span className="badge bg-amber-100 text-amber-700">{breakData.onBreakCount} on break</span>
+          {attChartData.every(d => d.value === 0) ? (
+            <div className="flex items-center justify-center h-56 text-gray-400 text-sm">
+              No attendance data for this period
+            </div>
+          ) : (
+            <ResponsiveContainer width="100%" height={240}>
+              <PieChart>
+                <Pie
+                  data={attChartData}
+                  cx="50%" cy="50%"
+                  innerRadius={60} outerRadius={90}
+                  paddingAngle={3} dataKey="value"
+                >
+                  {attChartData.map((entry, i) => <Cell key={i} fill={entry.color} />)}
+                </Pie>
+                <Legend />
+                <Tooltip />
+              </PieChart>
+            </ResponsiveContainer>
+          )}
         </div>
-        {breakData.data.length === 0 ? (
-          <p className="text-gray-400 text-sm text-center py-6">No break activity today</p>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-left text-gray-500 border-b">
-                  <th className="pb-3 font-medium">Employee</th>
-                  <th className="pb-3 font-medium">Designation</th>
-                  <th className="pb-3 font-medium">Breaks</th>
-                  <th className="pb-3 font-medium">Total Break Time</th>
-                  <th className="pb-3 font-medium">Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {breakData.data.map((b: any) => (
-                  <tr key={b.employee?._id} className="border-b border-gray-50 hover:bg-gray-50">
-                    <td className="py-3 font-medium">
-                      {b.employee?.firstName} {b.employee?.lastName}
-                      <span className="ml-2 text-xs text-gray-400">{b.employee?.employeeCode}</span>
-                    </td>
-                    <td className="py-3 text-gray-600">{b.employee?.designation || '—'}</td>
-                    <td className="py-3">{b.breakCount}</td>
-                    <td className="py-3">
-                      {b.totalMinutes >= 60
-                        ? `${Math.floor(b.totalMinutes / 60)}h ${b.totalMinutes % 60}m`
-                        : `${b.totalMinutes}m`}
-                    </td>
-                    <td className="py-3">
-                      {b.isOnBreak ? (
-                        <span className="inline-flex items-center gap-1 text-xs bg-amber-100 text-amber-700 px-2 py-1 rounded-full font-medium">
-                          <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
-                          On Break
-                        </span>
-                      ) : (
-                        <span className="text-xs bg-gray-100 text-gray-500 px-2 py-1 rounded-full">Done</span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
       </div>
 
-      {/* Pending leaves */}
+      {/* ── Break Tracker (today only) ── */}
+      {isToday && (
+        <div className="card mb-8">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="font-semibold text-gray-800 flex items-center gap-2">
+              <Coffee className="w-4 h-4 text-amber-600" /> Break Tracker — Today
+            </h3>
+            <span className="badge bg-amber-100 text-amber-700">{breakData.onBreakCount} on break</span>
+          </div>
+          {breakData.data.length === 0 ? (
+            <p className="text-gray-400 text-sm text-center py-6">No break activity today</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-left text-gray-500 border-b">
+                    <th className="pb-3 font-medium">Employee</th>
+                    <th className="pb-3 font-medium">Designation</th>
+                    <th className="pb-3 font-medium">Breaks</th>
+                    <th className="pb-3 font-medium">Total Break Time</th>
+                    <th className="pb-3 font-medium">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {breakData.data.map((b: any) => (
+                    <tr key={b.employee?._id} className="border-b border-gray-50 hover:bg-gray-50">
+                      <td className="py-3 font-medium">
+                        {b.employee?.firstName} {b.employee?.lastName}
+                        <span className="ml-2 text-xs text-gray-400">{b.employee?.employeeCode}</span>
+                      </td>
+                      <td className="py-3 text-gray-600">{b.employee?.designation || '—'}</td>
+                      <td className="py-3">{b.breakCount}</td>
+                      <td className="py-3">
+                        {b.totalMinutes >= 60
+                          ? `${Math.floor(b.totalMinutes / 60)}h ${b.totalMinutes % 60}m`
+                          : `${b.totalMinutes}m`}
+                      </td>
+                      <td className="py-3">
+                        {b.isOnBreak ? (
+                          <span className="inline-flex items-center gap-1 text-xs bg-amber-100 text-amber-700 px-2 py-1 rounded-full font-medium">
+                            <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" /> On Break
+                          </span>
+                        ) : (
+                          <span className="text-xs bg-gray-100 text-gray-500 px-2 py-1 rounded-full">Done</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Pending Leave Requests ── */}
       <div className="card">
         <div className="flex items-center justify-between mb-4">
           <h3 className="font-semibold text-gray-800">Pending Leave Requests</h3>

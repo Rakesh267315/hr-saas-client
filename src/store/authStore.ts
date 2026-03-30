@@ -24,6 +24,7 @@ interface AuthState {
   employee: Employee | null;
   token: string | null;
   setAuth: (user: User, token: string, employee?: Employee) => void;
+  updateUser: (patch: Partial<User>) => void;
   logout: () => void;
   isAdmin: () => boolean;
   isHR: () => boolean;
@@ -39,8 +40,20 @@ export const useAuthStore = create<AuthState>()(
         localStorage.setItem('hr_token', token);
         set({ user, token, employee: employee || null });
       },
+      updateUser: (patch) => set((s) => ({ user: s.user ? { ...s.user, ...patch } : s.user })),
       logout: () => {
         localStorage.removeItem('hr_token');
+        // Clear all session-stored filters/state on logout
+        try {
+          const sessionKeys = ['att_viewDate','emp_search','emp_dept','emp_status',
+            'rpt_dateFrom','rpt_dateTo','rpt_emp','rpt_dept','rpt_status',
+            'rpt_search','rpt_sortKey','rpt_sortDir','rpt_page'];
+          sessionKeys.forEach((k) => sessionStorage.removeItem(k));
+          // Clear any cached employee passwords
+          Object.keys(sessionStorage)
+            .filter((k) => k.startsWith('hr_pwd_'))
+            .forEach((k) => sessionStorage.removeItem(k));
+        } catch {}
         set({ user: null, token: null, employee: null });
       },
       isAdmin: () => ['admin', 'super_admin'].includes(get().user?.role || ''),

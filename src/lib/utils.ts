@@ -4,8 +4,14 @@ import { format, parseISO } from 'date-fns';
 
 export const cn = (...inputs: ClassValue[]) => twMerge(clsx(inputs));
 
-export const fmtDate = (d: string | Date, fmt = 'dd MMM yyyy') =>
-  format(typeof d === 'string' ? parseISO(d) : d, fmt);
+export const fmtDate = (d: string | Date | null | undefined, fmt = 'dd MMM yyyy') => {
+  if (!d) return '—';
+  try {
+    return format(typeof d === 'string' ? parseISO(d) : d, fmt);
+  } catch {
+    return '—';
+  }
+};
 
 export const fmtCurrency = (n: number) =>
   '₹' + new Intl.NumberFormat('en-IN', { maximumFractionDigits: 0 }).format(n);
@@ -27,4 +33,6 @@ export const statusColors: Record<string, string> = {
   half_day: 'bg-yellow-100 text-yellow-700',
   paid: 'bg-green-100 text-green-700',
   draft: 'bg-gray-100 text-gray-600',
+  terminated: 'bg-red-100 text-red-700',
+  resigned: 'bg-orange-100 text-orange-700',
 };

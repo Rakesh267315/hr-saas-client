@@ -59,7 +59,7 @@ export default function AdminPayrollPage() {
           <select className="input w-36" value={month} onChange={(e) => setMonth(+e.target.value)}>
             {Array.from({ length: 12 }, (_, i) => (
               <option key={i + 1} value={i + 1}>
-                {new Date(2024, i, 1).toLocaleString('default', { month: 'long' })}
+                {new Date(new Date().getFullYear(), i, 1).toLocaleString('default', { month: 'long' })}
               </option>
             ))}
           </select>
