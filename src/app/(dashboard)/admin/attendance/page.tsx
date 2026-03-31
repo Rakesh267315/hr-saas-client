@@ -196,8 +196,7 @@ export default function AdminAttendancePage() {
         setRecords(data);
         setStats({
           present: data.filter((r: any) => ['present','late'].includes(r.status)).length,
-          // Count late: status=late OR status=present with actual late_minutes (legacy records)
-          late:    data.filter((r: any) => r.status === 'late' || (r.lateMinutes > 0 && r.status === 'present')).length,
+          late:    data.filter((r: any) => r.status === 'late').length,
           absent:  data.filter((r: any) => r.status === 'absent').length,
           onLeave: data.filter((r: any) => r.status === 'on_leave').length,
         });

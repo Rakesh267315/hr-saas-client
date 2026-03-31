@@ -40,11 +40,10 @@ function getDateRange(preset: DatePreset, custom: string): { from: string; to: s
 
 function computeAttStats(records: any[]) {
   return {
-    // present includes both 'present' and 'late' statuses
     present: records.filter(r => ['present', 'late'].includes(r.status)).length,
     absent:  records.filter(r => r.status === 'absent').length,
-    // late: status='late' OR status='present' with actual late_minutes recorded (covers legacy records)
-    late:    records.filter(r => r.status === 'late' || (r.lateMinutes > 0 && r.status === 'present')).length,
+    // Use status field as single source of truth — 'present' means within grace period, not late
+    late:    records.filter(r => r.status === 'late').length,
     onLeave: records.filter(r => r.status === 'on_leave').length,
   };
 }
