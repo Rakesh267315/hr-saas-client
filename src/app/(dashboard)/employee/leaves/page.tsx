@@ -5,7 +5,7 @@ import { leaveApi } from '@/lib/api';
 import Badge from '@/components/ui/Badge';
 import { fmtDate } from '@/lib/utils';
 import toast from 'react-hot-toast';
-import { Plus, X, ChevronLeft, ChevronRight, CalendarDays, Info } from 'lucide-react';
+import { Plus, X, ChevronLeft, ChevronRight, CalendarDays, Info, ShieldAlert } from 'lucide-react';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 function prevMonth(m: string) {
@@ -28,18 +28,28 @@ function todayMonth() {
 
 // ── Balance Card ─────────────────────────────────────────────────────────────
 function BalanceCard({ data, color }: { data: any; color: { bg: string; ring: string; bar: string; text: string } }) {
-  const pct = data.totalLeaves > 0 ? Math.round((data.usedLeaves / data.totalLeaves) * 100) : 0;
+  const pctApproved = data.totalLeaves > 0 ? Math.min(100, (data.approvedLeaves / data.totalLeaves) * 100) : 0;
+  const pctPending  = data.totalLeaves > 0 ? Math.min(100 - pctApproved, (data.pendingLeaves  / data.totalLeaves) * 100) : 0;
+
   return (
     <div className={`card border-2 ${color.ring}`}>
       {/* Header */}
       <div className="flex items-start justify-between mb-4">
         <div>
-          <span className={`inline-flex items-center gap-1.5 text-xs font-bold px-2.5 py-1 rounded-full ${color.bg} ${color.text}`}>
-            {data.type}
-          </span>
+          <div className="flex items-center gap-2">
+            <span className={`inline-flex items-center gap-1.5 text-xs font-bold px-2.5 py-1 rounded-full ${color.bg} ${color.text}`}>
+              {data.type}
+            </span>
+            {data.isOverridden && (
+              <span className="inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full bg-purple-100 text-purple-700 border border-purple-200">
+                <ShieldAlert className="w-3 h-3" />
+                Custom Quota
+              </span>
+            )}
+          </div>
           <p className="text-sm text-gray-500 mt-1">{data.label}</p>
         </div>
-        {data.carryForward > 0 && (
+        {!data.isOverridden && data.carryForward > 0 && (
           <span className="text-xs text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full font-medium">
             +{data.carryForward} carried
           </span>
@@ -54,7 +64,7 @@ function BalanceCard({ data, color }: { data: any; color: { bg: string; ring: st
         </div>
         <div>
           <p className="text-2xl font-bold text-orange-600">{data.approvedLeaves ?? data.usedLeaves}</p>
-          <p className="text-xs text-gray-400 mt-0.5">Approved</p>
+          <p className="text-xs text-gray-400 mt-0.5">Used</p>
           {(data.pendingLeaves ?? 0) > 0 && (
             <p className="text-xs text-yellow-600 font-medium mt-0.5">+{data.pendingLeaves} pending</p>
           )}
@@ -63,31 +73,22 @@ function BalanceCard({ data, color }: { data: any; color: { bg: string; ring: st
           <p className={`text-2xl font-bold ${data.remainingLeaves > 0 ? 'text-green-600' : 'text-red-500'}`}>
             {data.remainingLeaves}
           </p>
-          <p className="text-xs text-gray-400 mt-0.5">Left</p>
+          <p className="text-xs text-gray-400 mt-0.5">Remaining</p>
         </div>
       </div>
 
-      {/* Progress bar — split: approved (solid) + pending (lighter) */}
+      {/* Progress bar */}
       <div className="space-y-1">
         <div className="flex justify-between text-xs text-gray-400">
-          <span>{pct}% used</span>
+          <span>{Math.round(pctApproved)}% used</span>
           <span>{data.remainingLeaves} remaining</span>
         </div>
         <div className="w-full bg-gray-100 rounded-full h-2 overflow-hidden relative">
-          {/* Approved portion */}
-          <div
-            className={`absolute left-0 top-0 h-2 rounded-full transition-all duration-500 ${color.bar}`}
-            style={{ width: `${Math.min(pct, 100)}%` }}
-          />
-          {/* Pending portion on top of approved */}
-          {(data.pendingLeaves ?? 0) > 0 && (
-            <div
-              className="absolute top-0 h-2 rounded-full opacity-50 bg-yellow-400 transition-all duration-500"
-              style={{
-                left: `${Math.min((data.approvedLeaves / data.totalLeaves) * 100, 100)}%`,
-                width: `${Math.min((data.pendingLeaves / data.totalLeaves) * 100, 100 - (data.approvedLeaves / data.totalLeaves) * 100)}%`,
-              }}
-            />
+          <div className={`absolute left-0 top-0 h-2 rounded-full transition-all duration-500 ${color.bar}`}
+            style={{ width: `${pctApproved}%` }} />
+          {pctPending > 0 && (
+            <div className="absolute top-0 h-2 rounded-full opacity-50 bg-yellow-400 transition-all duration-500"
+              style={{ left: `${pctApproved}%`, width: `${pctPending}%` }} />
           )}
         </div>
         {(data.pendingLeaves ?? 0) > 0 && (
@@ -97,11 +98,19 @@ function BalanceCard({ data, color }: { data: any; color: { bg: string; ring: st
         )}
       </div>
 
-      {/* Default info */}
-      <p className="text-xs text-gray-400 mt-3 flex items-center gap-1">
-        <Info className="w-3 h-3" />
-        {data.defaultLeaves}/month default · max {6} carry-forward
-      </p>
+      {/* Footer info */}
+      {data.isOverridden ? (
+        <p className="text-xs text-purple-600 mt-3 flex items-center gap-1">
+          <ShieldAlert className="w-3 h-3" />
+          Quota set by manager — {data.totalLeaves === 0 ? 'no leave allowed this month' : `${data.totalLeaves} day(s) allowed`}
+          {data.overrideNotes && <span className="text-gray-400 ml-1">· {data.overrideNotes}</span>}
+        </p>
+      ) : (
+        <p className="text-xs text-gray-400 mt-3 flex items-center gap-1">
+          <Info className="w-3 h-3" />
+          {data.defaultLeaves}/month default · max {6} carry-forward
+        </p>
+      )}
     </div>
   );
 }
@@ -117,14 +126,24 @@ const OTHER_TYPES = [
   { value: 'unpaid',    label: 'Unpaid Leave' },
 ];
 
-function ApplyModal({ onClose, onSuccess, employeeId }: { onClose: () => void; onSuccess: () => void; employeeId: string }) {
+function ApplyModal({
+  onClose, onSuccess, employeeId, balance,
+}: { onClose: () => void; onSuccess: () => void; employeeId: string; balance: any }) {
   const [form, setForm] = useState({
     leaveType: 'CL', startDate: '', endDate: '', reason: '', isHalfDay: false,
   });
   const [submitting, setSubmitting] = useState(false);
 
+  const f = (k: string, v: any) => setForm((p) => ({ ...p, [k]: v }));
+
+  // Check if selected CL/SL type has 0 remaining
+  const isCLSL = ['CL', 'SL'].includes(form.leaveType);
+  const selectedBalance = isCLSL ? balance?.[form.leaveType] : null;
+  const isBlocked = isCLSL && selectedBalance != null && selectedBalance.remainingLeaves <= 0;
+
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isBlocked) return toast.error(`No ${form.leaveType} balance remaining for this month`);
     if (!form.startDate || !form.endDate) return toast.error('Select start and end dates');
     if (form.startDate > form.endDate)    return toast.error('Start date must be before end date');
     setSubmitting(true);
@@ -137,8 +156,6 @@ function ApplyModal({ onClose, onSuccess, employeeId }: { onClose: () => void; o
       toast.error(err.response?.data?.message || 'Failed to apply');
     } finally { setSubmitting(false); }
   };
-
-  const f = (k: string, v: any) => setForm((p) => ({ ...p, [k]: v }));
 
   return (
     <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
@@ -156,21 +173,31 @@ function ApplyModal({ onClose, onSuccess, employeeId }: { onClose: () => void; o
             <label className="label">Leave Type</label>
             {/* CL / SL quick pick */}
             <div className="grid grid-cols-2 gap-2 mb-2">
-              {CL_SL_TYPES.map(({ value, label }) => (
-                <button
-                  key={value} type="button"
-                  onClick={() => f('leaveType', value)}
-                  className={`px-3 py-2.5 rounded-lg border-2 text-sm font-medium transition-all ${
-                    form.leaveType === value
-                      ? value === 'CL'
-                        ? 'border-green-500 bg-green-50 text-green-700'
-                        : 'border-red-400 bg-red-50 text-red-700'
-                      : 'border-gray-200 text-gray-600 hover:border-gray-300'
-                  }`}
-                >
-                  {label}
-                </button>
-              ))}
+              {CL_SL_TYPES.map(({ value, label }) => {
+                const b = balance?.[value];
+                const remaining = b?.remainingLeaves ?? null;
+                const blocked   = remaining !== null && remaining <= 0;
+                return (
+                  <button
+                    key={value} type="button"
+                    onClick={() => f('leaveType', value)}
+                    className={`px-3 py-2.5 rounded-lg border-2 text-sm font-medium transition-all relative ${
+                      form.leaveType === value
+                        ? value === 'CL'
+                          ? 'border-green-500 bg-green-50 text-green-700'
+                          : 'border-red-400 bg-red-50 text-red-700'
+                        : 'border-gray-200 text-gray-600 hover:border-gray-300'
+                    }`}
+                  >
+                    {label}
+                    {remaining !== null && (
+                      <span className={`block text-xs mt-0.5 font-normal ${blocked ? 'text-red-500' : 'text-gray-400'}`}>
+                        {blocked ? '⛔ 0 remaining' : `${remaining} left`}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
             </div>
             {/* Other types dropdown */}
             <select
@@ -184,6 +211,19 @@ function ApplyModal({ onClose, onSuccess, employeeId }: { onClose: () => void; o
               ))}
             </select>
           </div>
+
+          {/* Blocked notice */}
+          {isBlocked && (
+            <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-sm text-red-700">
+              <ShieldAlert className="w-4 h-4 shrink-0 mt-0.5" />
+              <span>
+                You have <strong>0 {form.leaveType} days remaining</strong> for this month.
+                {selectedBalance?.isOverridden
+                  ? ' Your manager has set a custom quota of 0 for this month.'
+                  : ' Please contact HR if you need additional leave.'}
+              </span>
+            </div>
+          )}
 
           {/* Dates */}
           <div className="grid grid-cols-2 gap-4">
@@ -216,8 +256,11 @@ function ApplyModal({ onClose, onSuccess, employeeId }: { onClose: () => void; o
 
           <div className="flex gap-3 pt-2">
             <button type="button" className="btn-secondary flex-1" onClick={onClose}>Cancel</button>
-            <button type="submit" disabled={submitting} className="btn-primary flex-1">
-              {submitting ? 'Submitting…' : 'Submit Application'}
+            <button
+              type="submit"
+              disabled={submitting || isBlocked}
+              className="btn-primary flex-1 disabled:opacity-50 disabled:cursor-not-allowed">
+              {submitting ? 'Submitting…' : isBlocked ? `No ${form.leaveType} Balance` : 'Submit Application'}
             </button>
           </div>
         </form>
@@ -278,10 +321,14 @@ export default function EmployeeLeavesPage() {
     } catch { toast.error('Failed to cancel'); }
   };
 
-  // Filter leaves for the selected month
+  // Filter leaves for the selected month only
   const monthLeaves = leaves.filter((l) => l.startDate?.slice(0, 7) === month);
-
   const bal = monthlyBal?.balance;
+
+  // Check if apply button should be disabled (both CL and SL at 0)
+  const clRemaining = bal?.CL?.remainingLeaves ?? null;
+  const slRemaining = bal?.SL?.remainingLeaves ?? null;
+  const bothBlocked = clRemaining !== null && slRemaining !== null && clRemaining <= 0 && slRemaining <= 0;
 
   return (
     <div>
@@ -291,9 +338,19 @@ export default function EmployeeLeavesPage() {
           <h1 className="text-2xl font-bold text-gray-900">My Leaves</h1>
           <p className="text-gray-500 text-sm">Track your Casual & Sick leave balance</p>
         </div>
-        <button onClick={() => setShowModal(true)} className="btn-primary flex items-center gap-2 self-start sm:self-auto">
-          <Plus className="w-4 h-4" /> Apply Leave
-        </button>
+        <div className="flex items-center gap-2">
+          {bothBlocked && month === todayMonth() && (
+            <span className="text-xs text-red-600 bg-red-50 border border-red-200 px-3 py-1.5 rounded-lg flex items-center gap-1">
+              <ShieldAlert className="w-3.5 h-3.5" />
+              No CL/SL balance this month
+            </span>
+          )}
+          <button
+            onClick={() => setShowModal(true)}
+            className="btn-primary flex items-center gap-2 self-start sm:self-auto">
+            <Plus className="w-4 h-4" /> Apply Leave
+          </button>
+        </div>
       </div>
 
       {/* Month navigator */}
@@ -343,7 +400,7 @@ export default function EmployeeLeavesPage() {
         </div>
       ) : null}
 
-      {/* Leave history table */}
+      {/* Leave history — current month */}
       <div className="card p-0 overflow-hidden">
         <div className="flex items-center justify-between px-6 py-4 border-b">
           <h2 className="font-semibold text-gray-900">
@@ -373,9 +430,7 @@ export default function EmployeeLeavesPage() {
                 </tr>
               ) : monthLeaves.map((l: any) => (
                 <tr key={l._id} className="table-row">
-                  <td className="px-6 py-4">
-                    <TypeBadge type={l.leaveType} />
-                  </td>
+                  <td className="px-6 py-4"><TypeBadge type={l.leaveType} /></td>
                   <td className="px-4 py-4 text-gray-700">{fmtDate(l.startDate)}</td>
                   <td className="px-4 py-4 text-gray-700">{fmtDate(l.endDate)}</td>
                   <td className="px-4 py-4 font-semibold text-gray-900">{l.totalDays}</td>
@@ -431,6 +486,7 @@ export default function EmployeeLeavesPage() {
           onClose={() => setShowModal(false)}
           onSuccess={load}
           employeeId={employee._id}
+          balance={bal}
         />
       )}
     </div>

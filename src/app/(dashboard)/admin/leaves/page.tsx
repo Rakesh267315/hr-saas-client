@@ -4,7 +4,7 @@ import { leaveApi, employeeApi } from '@/lib/api';
 import Badge from '@/components/ui/Badge';
 import { fmtDate } from '@/lib/utils';
 import toast from 'react-hot-toast';
-import { CheckCircle, XCircle, X, AlertTriangle, CalendarDays, PlusCircle } from 'lucide-react';
+import { CheckCircle, XCircle, X, AlertTriangle, CalendarDays, PlusCircle, ShieldAlert, Trash2, SlidersHorizontal } from 'lucide-react';
 
 // ── Type Badge ────────────────────────────────────────────────────────────────
 function TypeBadge({ type }: { type: string }) {
@@ -274,6 +274,240 @@ function ManualLeaveModal({ onClose, onDone }: { onClose: () => void; onDone: ()
   );
 }
 
+// ── Set Leave Balance Modal (Manager Override) ────────────────────────────────
+function SetLeaveBalanceModal({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
+  const [employees, setEmployees] = useState<any[]>([]);
+  const [overrides, setOverrides] = useState<any[]>([]);
+  const [saving, setSaving]       = useState(false);
+  const [deleting, setDeleting]   = useState<string | null>(null);
+  const [tab, setTab]             = useState<'set' | 'list'>('set');
+
+  const now     = new Date();
+  const curMon  = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+
+  const [form, setForm] = useState({
+    employeeId        : '',
+    month             : curMon,
+    leaveType         : 'CL',
+    customTotalLeaves : '0',
+    notes             : '',
+  });
+
+  const set = (k: string, v: any) => setForm((f) => ({ ...f, [k]: v }));
+
+  const loadData = async () => {
+    const [empRes, ovRes] = await Promise.all([
+      employeeApi.getAll({ limit: 200, status: 'active' }),
+      leaveApi.getOverrides({ month: form.month }),
+    ]);
+    setEmployees(empRes.data.data || []);
+    setOverrides(ovRes.data.data || []);
+  };
+
+  useEffect(() => { loadData().catch(() => {}); }, [form.month]);
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!form.employeeId) return toast.error('Select an employee');
+    setSaving(true);
+    try {
+      await leaveApi.setOverride({
+        employeeId        : form.employeeId,
+        month             : form.month,
+        leaveType         : form.leaveType,
+        customTotalLeaves : Number(form.customTotalLeaves),
+        notes             : form.notes,
+      });
+      toast.success('Leave quota updated');
+      loadData();
+      onDone();
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || 'Failed to set override');
+    } finally { setSaving(false); }
+  };
+
+  const removeOverride = async (id: string) => {
+    if (!confirm('Remove this override? Balance will revert to default + carry-forward.')) return;
+    setDeleting(id);
+    try {
+      await leaveApi.deleteOverride(id);
+      toast.success('Override removed');
+      loadData();
+      onDone();
+    } catch { toast.error('Failed to remove'); }
+    finally { setDeleting(null); }
+  };
+
+  // Month options: 6 months back + 6 ahead
+  const monthOptions = Array.from({ length: 13 }, (_, i) => {
+    const d = new Date(now.getFullYear(), now.getMonth() - 6 + i, 1);
+    const val = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    return { val, label: d.toLocaleString('default', { month: 'long', year: 'numeric' }) };
+  });
+
+  return (
+    <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl w-full max-w-2xl shadow-2xl max-h-[90vh] flex flex-col">
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-5 border-b shrink-0">
+          <div className="flex items-center gap-2">
+            <ShieldAlert className="w-5 h-5 text-purple-600" />
+            <div>
+              <h2 className="text-lg font-bold text-gray-900">Set Leave Balance</h2>
+              <p className="text-sm text-gray-500 mt-0.5">Override monthly CL/SL quota per employee</p>
+            </div>
+          </div>
+          <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-lg"><X className="w-5 h-5" /></button>
+        </div>
+
+        {/* Tabs */}
+        <div className="flex border-b shrink-0">
+          {(['set', 'list'] as const).map((t) => (
+            <button key={t} onClick={() => setTab(t)}
+              className={`px-6 py-3 text-sm font-medium transition-colors border-b-2 -mb-px ${tab === t ? 'border-purple-600 text-purple-700' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
+              {t === 'set' ? '⚙️ Set Override' : `📋 Active Overrides (${overrides.length})`}
+            </button>
+          ))}
+        </div>
+
+        <div className="overflow-y-auto flex-1 p-6">
+          {tab === 'set' ? (
+            <form onSubmit={submit} className="space-y-5">
+              {/* Month */}
+              <div>
+                <label className="label">Month</label>
+                <select className="input" value={form.month} onChange={(e) => set('month', e.target.value)}>
+                  {monthOptions.map(({ val, label }) => (
+                    <option key={val} value={val}>{label}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Employee */}
+              <div>
+                <label className="label">Employee</label>
+                <select required className="input" value={form.employeeId} onChange={(e) => set('employeeId', e.target.value)}>
+                  <option value="">— Select employee —</option>
+                  {employees.map((emp) => (
+                    <option key={emp.id} value={emp.id}>
+                      {emp.firstName} {emp.lastName}{emp.employeeCode ? ` (${emp.employeeCode})` : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Leave Type + Custom Total side by side */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="label">Leave Type</label>
+                  <div className="flex gap-2">
+                    {['CL', 'SL'].map((t) => (
+                      <button key={t} type="button"
+                        onClick={() => set('leaveType', t)}
+                        className={`flex-1 py-2.5 rounded-lg border-2 text-sm font-bold transition-all ${form.leaveType === t
+                          ? t === 'CL' ? 'border-green-500 bg-green-50 text-green-700'
+                                       : 'border-red-400 bg-red-50 text-red-700'
+                          : 'border-gray-200 text-gray-500'}`}>
+                        {t}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <label className="label">Total Leaves (days)</label>
+                  <input
+                    type="number" min="0" max="31" step="0.5" required className="input"
+                    value={form.customTotalLeaves}
+                    onChange={(e) => set('customTotalLeaves', e.target.value)}
+                    placeholder="e.g. 0, 1, 2" />
+                  <p className="text-xs text-gray-400 mt-1">Set 0 to block leave for this month</p>
+                </div>
+              </div>
+
+              {/* Notes */}
+              <div>
+                <label className="label">Notes <span className="text-gray-400 font-normal">(optional)</span></label>
+                <input type="text" className="input" placeholder="Reason for override…"
+                  value={form.notes} onChange={(e) => set('notes', e.target.value)} />
+              </div>
+
+              {/* Warning if 0 */}
+              {Number(form.customTotalLeaves) === 0 && (
+                <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-sm text-red-700">
+                  <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+                  <span>Setting 0 will <strong>completely block</strong> this employee from applying {form.leaveType} leave in {form.month}.</span>
+                </div>
+              )}
+
+              <div className="flex gap-3 pt-1">
+                <button type="button" className="btn-secondary flex-1" onClick={onClose}>Cancel</button>
+                <button type="submit" disabled={saving}
+                  className="flex-1 bg-purple-600 hover:bg-purple-700 text-white font-semibold px-4 py-2.5 rounded-lg transition-colors disabled:opacity-50 flex items-center justify-center gap-2">
+                  {saving
+                    ? <><span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" /> Saving…</>
+                    : <><ShieldAlert className="w-4 h-4" /> Set Override</>}
+                </button>
+              </div>
+            </form>
+          ) : (
+            /* Active overrides list */
+            <div>
+              {/* Filter by month */}
+              <div className="mb-4 flex items-center gap-3">
+                <label className="text-sm text-gray-600 font-medium">Filter Month:</label>
+                <select className="input w-48 text-sm" value={form.month} onChange={(e) => set('month', e.target.value)}>
+                  {monthOptions.map(({ val, label }) => (
+                    <option key={val} value={val}>{label}</option>
+                  ))}
+                </select>
+              </div>
+              {overrides.length === 0 ? (
+                <div className="text-center py-10 text-gray-400">
+                  <SlidersHorizontal className="w-8 h-8 mx-auto mb-2 opacity-40" />
+                  <p>No overrides set for this month</p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {overrides.map((ov: any) => (
+                    <div key={ov.id}
+                      className="flex items-center justify-between px-4 py-3 border border-gray-200 rounded-xl hover:bg-gray-50">
+                      <div>
+                        <p className="font-medium text-gray-900 text-sm">
+                          {ov.first_name} {ov.last_name}
+                          <span className="text-gray-400 ml-1 text-xs">({ov.employee_code})</span>
+                        </p>
+                        <p className="text-xs text-gray-500 mt-0.5">
+                          <span className={`inline-block px-1.5 py-0.5 rounded font-bold text-xs mr-1.5 ${ov.leave_type === 'CL' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                            {ov.leave_type}
+                          </span>
+                          {ov.month} · <strong className={Number(ov.custom_total_leaves) === 0 ? 'text-red-600' : 'text-purple-700'}>
+                            {ov.custom_total_leaves} days
+                          </strong>
+                          {ov.notes && <span className="text-gray-400 ml-1">· {ov.notes}</span>}
+                        </p>
+                        {ov.set_by_name && (
+                          <p className="text-xs text-gray-400 mt-0.5">Set by {ov.set_by_name}</p>
+                        )}
+                      </div>
+                      <button
+                        onClick={() => removeOverride(ov.id)}
+                        disabled={deleting === ov.id}
+                        className="p-2 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-40"
+                        title="Remove override">
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Main Page ─────────────────────────────────────────────────────────────────
 export default function AdminLeavesPage() {
   const [leaves, setLeaves]             = useState<any[]>([]);
@@ -283,6 +517,7 @@ export default function AdminLeavesPage() {
   const [pagination, setPagination]     = useState({ total: 0 });
   const [rejectLeave, setRejectLeave]   = useState<any>(null);
   const [showManual, setShowManual]     = useState(false);
+  const [showOverride, setShowOverride] = useState(false);
 
   const load = async () => {
     setLoading(true);
@@ -324,6 +559,14 @@ export default function AdminLeavesPage() {
         </div>
 
         <div className="flex gap-2 flex-wrap items-center">
+          {/* Set Leave Balance (Override) */}
+          <button
+            onClick={() => setShowOverride(true)}
+            className="flex items-center gap-2 bg-purple-600 hover:bg-purple-700 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors shadow-sm">
+            <ShieldAlert className="w-4 h-4" />
+            Set Leave Balance
+          </button>
+
           {/* Manual Leave button */}
           <button
             onClick={() => setShowManual(true)}
@@ -438,6 +681,14 @@ export default function AdminLeavesPage() {
       {showManual && (
         <ManualLeaveModal
           onClose={() => setShowManual(false)}
+          onDone={load}
+        />
+      )}
+
+      {/* Set Leave Balance (Override) Modal */}
+      {showOverride && (
+        <SetLeaveBalanceModal
+          onClose={() => setShowOverride(false)}
           onDone={load}
         />
       )}

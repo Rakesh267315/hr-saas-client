@@ -100,6 +100,10 @@ export const leaveApi = {
   getMonthlyBalance: (id: string, month: string) =>
     api.get(`/leaves/monthly-balance/${id}`, { params: { month } }),
   adminManualAdd: (data: object) => api.post('/leaves/admin/manual', data),
+  // Leave overrides (manager/admin custom quota)
+  setOverride: (data: object) => api.post('/leaves/override', data),
+  getOverrides: (params?: object) => api.get('/leaves/overrides', { params }),
+  deleteOverride: (id: string) => api.delete(`/leaves/override/${id}`),
 };
 
 // ── Payroll ───────────────────────────────────────────────────────────────────
