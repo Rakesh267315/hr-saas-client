@@ -1,11 +1,11 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { attendanceApi, employeeApi } from '@/lib/api';
 import { usePersistState } from '@/lib/hooks';
 import Badge from '@/components/ui/Badge';
 import { fmtDate } from '@/lib/utils';
 import toast from 'react-hot-toast';
-import { RefreshCw, Users, Clock, Edit2, Unlock, Lock, AlertCircle, X, Save, Calculator } from 'lucide-react';
+import { RefreshCw, Users, Edit2, Unlock, Lock, AlertCircle, X, Save, Calculator, DatabaseBackup } from 'lucide-react';
 
 const STATUSES = ['present', 'late', 'half_day', 'absent', 'on_leave'];
 
@@ -174,6 +174,226 @@ function UnlockModal({ record, onClose, onSave }: { record: any; onClose: () => 
   );
 }
 
+// ── Backfill Modal ──────────────────────────────────────────────────────────
+function BackfillModal({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
+  const today = new Date().toISOString().split('T')[0];
+  const firstOfMonth = today.slice(0, 8) + '01';
+
+  const [form, setForm] = useState({
+    fromDate: firstOfMonth,
+    toDate: today,
+    status: 'absent',
+    target: 'all', // 'all' | 'specific'
+    employeeIds: [] as string[],
+  });
+  const [employees, setEmployees] = useState<any[]>([]);
+  const [saving, setSaving] = useState(false);
+  const [result, setResult] = useState<any>(null);
+
+  useEffect(() => {
+    employeeApi.getAll({ status: 'active', limit: 200 })
+      .then(r => setEmployees(r.data.data || []))
+      .catch(() => {});
+  }, []);
+
+  // Count working days in range (Mon–Fri, skip Sunday as default weekly off)
+  const workingDayCount = useMemo(() => {
+    if (!form.fromDate || !form.toDate || form.fromDate > form.toDate) return 0;
+    let count = 0;
+    const cur = new Date(form.fromDate + 'T00:00:00Z');
+    const end = new Date(form.toDate + 'T00:00:00Z');
+    while (cur <= end) {
+      const d = cur.getUTCDay();
+      if (d !== 0 && d !== 6) count++; // skip Sun + Sat
+      cur.setUTCDate(cur.getUTCDate() + 1);
+    }
+    return count;
+  }, [form.fromDate, form.toDate]);
+
+  const empCount = form.target === 'all' ? employees.length : form.employeeIds.length;
+  const totalRecords = workingDayCount * empCount;
+
+  const toggleEmp = (id: string) =>
+    setForm(p => ({
+      ...p,
+      employeeIds: p.employeeIds.includes(id)
+        ? p.employeeIds.filter(e => e !== id)
+        : [...p.employeeIds, id],
+    }));
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (workingDayCount === 0) return toast.error('No working days in selected range');
+    if (form.target === 'specific' && form.employeeIds.length === 0)
+      return toast.error('Select at least one employee');
+    setSaving(true);
+    try {
+      const res = await attendanceApi.backfill({
+        fromDate: form.fromDate,
+        toDate: form.toDate,
+        status: form.status,
+        employeeIds: form.target === 'all' ? 'all' : form.employeeIds,
+      });
+      setResult(res.data);
+      toast.success(res.data.message);
+      onDone();
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || 'Backfill failed');
+    } finally { setSaving(false); }
+  };
+
+  const statusColors: Record<string, string> = {
+    absent:   'bg-red-100 text-red-700 border-red-200',
+    present:  'bg-green-100 text-green-700 border-green-200',
+    on_leave: 'bg-blue-100 text-blue-700 border-blue-200',
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center justify-between px-6 py-5 border-b sticky top-0 bg-white z-10">
+          <div>
+            <h2 className="text-lg font-bold text-gray-900">Backfill Attendance</h2>
+            <p className="text-sm text-gray-500 mt-0.5">Create missing records for a date range</p>
+          </div>
+          <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-lg"><X className="w-5 h-5" /></button>
+        </div>
+
+        {result ? (
+          // ── Success result view ──
+          <div className="p-6 space-y-4">
+            <div className="rounded-xl bg-green-50 border border-green-200 p-5 text-center">
+              <p className="text-3xl font-bold text-green-700">{result.created}</p>
+              <p className="text-sm text-green-600 mt-1">Records created</p>
+            </div>
+            <div className="grid grid-cols-3 gap-3 text-center text-sm">
+              <div className="bg-gray-50 rounded-lg p-3">
+                <p className="font-semibold text-gray-800">{result.workingDays}</p>
+                <p className="text-gray-500 text-xs">Working Days</p>
+              </div>
+              <div className="bg-gray-50 rounded-lg p-3">
+                <p className="font-semibold text-gray-800">{result.employees}</p>
+                <p className="text-gray-500 text-xs">Employees</p>
+              </div>
+              <div className="bg-amber-50 rounded-lg p-3">
+                <p className="font-semibold text-amber-700">{result.skipped}</p>
+                <p className="text-amber-600 text-xs">Skipped (existed)</p>
+              </div>
+            </div>
+            <button onClick={onClose} className="btn-primary w-full">Done</button>
+          </div>
+        ) : (
+          <form onSubmit={submit} className="p-6 space-y-5">
+            {/* Date range */}
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">From Date</label>
+                <input type="date" value={form.fromDate} max={today}
+                  onChange={e => setForm(p => ({ ...p, fromDate: e.target.value }))}
+                  className="input w-full" required />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">To Date</label>
+                <input type="date" value={form.toDate} max={today}
+                  onChange={e => setForm(p => ({ ...p, toDate: e.target.value }))}
+                  className="input w-full" required />
+              </div>
+            </div>
+
+            {/* Status to set */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Mark missing records as</label>
+              <div className="grid grid-cols-3 gap-2">
+                {[
+                  { value: 'absent',   label: '🔴 Absent' },
+                  { value: 'present',  label: '🟢 Present' },
+                  { value: 'on_leave', label: '🔵 On Leave' },
+                ].map(opt => (
+                  <button key={opt.value} type="button"
+                    onClick={() => setForm(p => ({ ...p, status: opt.value }))}
+                    className={`px-3 py-2 rounded-lg border text-sm font-medium transition-colors ${
+                      form.status === opt.value
+                        ? statusColors[opt.value] + ' border'
+                        : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'
+                    }`}>
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Employee selector */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Employees</label>
+              <div className="flex gap-2 mb-2">
+                <button type="button"
+                  onClick={() => setForm(p => ({ ...p, target: 'all', employeeIds: [] }))}
+                  className={`flex-1 py-2 rounded-lg border text-sm font-medium transition-colors ${
+                    form.target === 'all' ? 'bg-blue-50 border-blue-400 text-blue-700' : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'
+                  }`}>
+                  All Active ({employees.length})
+                </button>
+                <button type="button"
+                  onClick={() => setForm(p => ({ ...p, target: 'specific' }))}
+                  className={`flex-1 py-2 rounded-lg border text-sm font-medium transition-colors ${
+                    form.target === 'specific' ? 'bg-blue-50 border-blue-400 text-blue-700' : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'
+                  }`}>
+                  Select Specific
+                </button>
+              </div>
+              {form.target === 'specific' && (
+                <div className="border border-gray-200 rounded-lg max-h-44 overflow-y-auto divide-y">
+                  {employees.map(emp => (
+                    <label key={emp.id} className="flex items-center gap-3 px-4 py-2.5 hover:bg-gray-50 cursor-pointer">
+                      <input type="checkbox" checked={form.employeeIds.includes(emp.id)}
+                        onChange={() => toggleEmp(emp.id)}
+                        className="rounded border-gray-300 text-blue-600" />
+                      <div>
+                        <p className="text-sm font-medium text-gray-800">{emp.firstName} {emp.lastName}</p>
+                        <p className="text-xs text-gray-400">{emp.employeeCode} · {emp.department?.name || '—'}</p>
+                      </div>
+                    </label>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Preview */}
+            <div className={`rounded-xl p-4 text-sm border ${
+              totalRecords > 0 ? 'bg-blue-50 border-blue-200' : 'bg-gray-50 border-gray-200'
+            }`}>
+              {totalRecords > 0 ? (
+                <>
+                  <p className="font-semibold text-blue-800 mb-1">Preview</p>
+                  <p className="text-blue-700">
+                    <strong>{workingDayCount}</strong> working days ×{' '}
+                    <strong>{empCount}</strong> employee{empCount !== 1 ? 's' : ''} ={' '}
+                    <strong>{totalRecords}</strong> records to create
+                  </p>
+                  <p className="text-blue-500 text-xs mt-1">
+                    ✓ Records that already exist will be skipped automatically
+                  </p>
+                </>
+              ) : (
+                <p className="text-gray-500">Select a date range and employees to see preview</p>
+              )}
+            </div>
+
+            <div className="flex gap-3 pt-1">
+              <button type="button" onClick={onClose} className="btn-secondary flex-1">Cancel</button>
+              <button type="submit" disabled={saving || totalRecords === 0}
+                className="flex-1 bg-purple-600 hover:bg-purple-700 disabled:opacity-50 text-white font-medium px-4 py-2 rounded-lg flex items-center justify-center gap-2 transition-colors">
+                <DatabaseBackup className="w-4 h-4" />
+                {saving ? 'Creating…' : `Backfill ${totalRecords > 0 ? totalRecords + ' Records' : ''}`}
+              </button>
+            </div>
+          </form>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── Main Page ───────────────────────────────────────────────────────────────
 export default function AdminAttendancePage() {
   const [records, setRecords] = useState<any[]>([]);
@@ -182,6 +402,7 @@ export default function AdminAttendancePage() {
   const [viewDate, setViewDate] = usePersistState('att_viewDate', new Date().toISOString().split('T')[0]);
   const [editRecord, setEditRecord] = useState<any>(null);
   const [unlockRecord, setUnlockRecord] = useState<any>(null);
+  const [showBackfill, setShowBackfill] = useState(false);
 
   const load = async () => {
     setLoading(true);
@@ -234,6 +455,10 @@ export default function AdminAttendancePage() {
           <input type="date" value={viewDate}
             onChange={e => setViewDate(e.target.value)}
             className="input text-sm" />
+          <button onClick={() => setShowBackfill(true)}
+            className="btn-secondary text-sm flex items-center gap-2 text-purple-600 border-purple-300 hover:bg-purple-50">
+            <DatabaseBackup className="w-4 h-4" /> Backfill Data
+          </button>
           <button onClick={recalculate} title="Fix late minutes using correct IST timezone"
             className="btn-secondary text-sm flex items-center gap-2 text-orange-600 border-orange-300 hover:bg-orange-50">
             <Calculator className="w-4 h-4" /> Recalculate Late
@@ -347,6 +572,9 @@ export default function AdminAttendancePage() {
       )}
       {unlockRecord && (
         <UnlockModal record={unlockRecord} onClose={() => setUnlockRecord(null)} onSave={() => { setUnlockRecord(null); load(); }} />
+      )}
+      {showBackfill && (
+        <BackfillModal onClose={() => setShowBackfill(false)} onDone={() => { setShowBackfill(false); load(); }} />
       )}
     </div>
   );
