@@ -99,6 +99,7 @@ export const leaveApi = {
   getBalance: (id: string) => api.get(`/leaves/balance/${id}`),
   getMonthlyBalance: (id: string, month: string) =>
     api.get(`/leaves/monthly-balance/${id}`, { params: { month } }),
+  adminManualAdd: (data: object) => api.post('/leaves/admin/manual', data),
 };
 
 // ── Payroll ───────────────────────────────────────────────────────────────────
