@@ -168,20 +168,67 @@ export default function SettingsPage() {
             {tab === 'attendance' && (
               <>
                 <h2 className="text-base font-semibold text-gray-800 border-b pb-2">Attendance Rules</h2>
-                <div className="bg-blue-50 rounded-lg p-3 text-xs text-blue-700 space-y-0.5">
-                  <p><strong>How status is assigned on check-in:</strong></p>
-                  <p>≤ Grace Period → <span className="font-medium">Present</span></p>
-                  <p>Grace + 1 min … Half-Day threshold → <span className="font-medium">Late</span></p>
-                  <p>Half-Day + 1 min … Absent threshold → <span className="font-medium">Half Day</span></p>
-                  <p>{'>'} Absent threshold → <span className="font-medium">Absent</span></p>
-                </div>
-                <Field label="Grace Period (minutes)" hint="Employee is marked Present within this window after office start time.">
+
+                {/* Live Preview — shows exact clock times */}
+                {(() => {
+                  const [sh, sm] = (form.officeStartTime || '10:00').split(':').map(Number);
+                  const startMin = sh * 60 + sm;
+                  const grace    = Number(form.gracePeriodMinutes)    || 0;
+                  const halfDay  = Number(form.halfDayAfterMinutes)   || 240;
+                  const absent   = Number(form.absentAfterMinutes)    || 480;
+                  const toTime   = (mins: number) => {
+                    const h = Math.floor(mins / 60) % 24;
+                    const m = mins % 60;
+                    return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
+                  };
+                  const presentUntil = toTime(startMin + grace);
+                  const lateUntil   = toTime(startMin + halfDay);
+                  const halfDayUntil= toTime(startMin + absent);
+                  return (
+                    <div className="rounded-xl border border-blue-200 bg-blue-50 overflow-hidden">
+                      <p className="text-xs font-semibold text-blue-800 px-4 pt-3 pb-1">
+                        📅 Live Preview — office starts at {form.officeStartTime || '10:00'}
+                      </p>
+                      <div className="grid grid-cols-2 gap-px bg-blue-200 text-xs">
+                        <div className="bg-green-50 px-4 py-2.5">
+                          <span className="inline-block w-2 h-2 rounded-full bg-green-500 mr-1.5" />
+                          <strong className="text-green-800">Present</strong>
+                          <p className="text-green-700 mt-0.5">Check-in up to <strong>{presentUntil}</strong></p>
+                          <p className="text-green-600 text-[10px]">(within {grace} min grace)</p>
+                        </div>
+                        <div className="bg-orange-50 px-4 py-2.5">
+                          <span className="inline-block w-2 h-2 rounded-full bg-orange-500 mr-1.5" />
+                          <strong className="text-orange-800">Late</strong>
+                          <p className="text-orange-700 mt-0.5">After {presentUntil} until <strong>{lateUntil}</strong></p>
+                          <p className="text-orange-600 text-[10px]">(more than {grace} min late)</p>
+                        </div>
+                        <div className="bg-yellow-50 px-4 py-2.5">
+                          <span className="inline-block w-2 h-2 rounded-full bg-yellow-500 mr-1.5" />
+                          <strong className="text-yellow-800">Half Day</strong>
+                          <p className="text-yellow-700 mt-0.5">After {lateUntil} until <strong>{halfDayUntil}</strong></p>
+                          <p className="text-yellow-600 text-[10px]">(more than {halfDay} min late)</p>
+                        </div>
+                        <div className="bg-red-50 px-4 py-2.5">
+                          <span className="inline-block w-2 h-2 rounded-full bg-red-500 mr-1.5" />
+                          <strong className="text-red-800">Absent</strong>
+                          <p className="text-red-700 mt-0.5">After <strong>{halfDayUntil}</strong></p>
+                          <p className="text-red-600 text-[10px]">(more than {absent} min late)</p>
+                        </div>
+                      </div>
+                      <p className="text-[10px] text-blue-600 px-4 py-2">
+                        💡 After changing values, click <strong>Save Settings</strong> then use <strong>Recalculate Late</strong> on the Attendance page to update today's records.
+                      </p>
+                    </div>
+                  );
+                })()}
+
+                <Field label="Grace Period (minutes)" hint={`Employees checking in within ${form.gracePeriodMinutes} min after office start = Present (not Late).`}>
                   <NumInput name="gracePeriodMinutes" value={form.gracePeriodMinutes} onChange={onChange} min={0} max={60} />
                 </Field>
-                <Field label="Half-Day After (minutes late)" hint="If late by more than this, employee is marked Half Day instead of Late.">
+                <Field label="Late → Half Day After (minutes late)" hint="Employees late by more than this many minutes are marked Half Day.">
                   <NumInput name="halfDayAfterMinutes" value={form.halfDayAfterMinutes} onChange={onChange} min={30} max={480} />
                 </Field>
-                <Field label="Absent After (minutes late)" hint="If late by more than this, employee is marked Absent.">
+                <Field label="Half Day → Absent After (minutes late)" hint="Employees late by more than this many minutes are marked Absent.">
                   <NumInput name="absentAfterMinutes" value={form.absentAfterMinutes} onChange={onChange} min={60} max={600} />
                 </Field>
 
