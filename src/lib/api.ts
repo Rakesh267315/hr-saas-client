@@ -88,6 +88,7 @@ export const attendanceApi = {
   unlock: (id: string, data: object) => api.patch(`/attendance/${id}/unlock`, data),
   recalculate: (date?: string) => api.post('/attendance/recalculate', { date }),
   backfill: (data: object) => api.post('/attendance/backfill', data),
+  bulkEntry: (data: object) => api.post('/attendance/bulk-entry', data),
 };
 
 // ── Leaves ────────────────────────────────────────────────────────────────────
