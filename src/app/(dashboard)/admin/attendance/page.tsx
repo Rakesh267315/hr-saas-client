@@ -5,7 +5,7 @@ import { usePersistState } from '@/lib/hooks';
 import Badge from '@/components/ui/Badge';
 import { fmtDate } from '@/lib/utils';
 import toast from 'react-hot-toast';
-import { RefreshCw, Users, Edit2, Unlock, Lock, AlertCircle, X, Save, Calculator, DatabaseBackup, ClipboardList, Check, ChevronDown, Clock } from 'lucide-react';
+import { RefreshCw, Users, Edit2, Unlock, Lock, AlertCircle, X, Save, Calculator, DatabaseBackup, ClipboardList, Check, ChevronDown, Clock, ChevronRight } from 'lucide-react';
 
 const STATUSES = ['present', 'late', 'half_day', 'absent', 'on_leave'];
 
@@ -222,13 +222,14 @@ function BackdateEntryModal({ initialDate, onClose, onDone }: {
   const [allChecked,    setAllChecked]   = useState(true);
 
   // Load all active employees + existing records for the selected date
-  const load = async () => {
-    if (!date) return;
+  const load = async (forDate?: string) => {
+    const d = forDate ?? date;
+    if (!d) return;
     setLoading(true);
     try {
       const [empRes, attRes] = await Promise.all([
         employeeApi.getAll({ status: 'active', limit: 200 }),
-        attendanceApi.getAll({ date }),
+        attendanceApi.getAll({ date: d }),
       ]);
       const emps: any[]  = empRes.data.data || [];
       const atts: any[]  = attRes.data.data || [];
@@ -298,7 +299,7 @@ function BackdateEntryModal({ initialDate, onClose, onDone }: {
   const includedCount = entries.filter(e => e.include).length;
   const presentCount  = entries.filter(e => e.include && !NO_TIME_STATUSES.includes(e.status)).length;
 
-  const save = async () => {
+  const save = async (goNext = false) => {
     const toSave = entries.filter(e => e.include);
     if (toSave.length === 0) return toast.error('No employees selected');
     setSaving(true);
@@ -316,6 +317,19 @@ function BackdateEntryModal({ initialDate, onClose, onDone }: {
       setResult(res.data);
       toast.success(res.data.message);
       onDone();
+      if (goNext) {
+        const nextDate = new Date(date + 'T00:00:00');
+        nextDate.setDate(nextDate.getDate() + 1);
+        const nextStr = nextDate.toISOString().split('T')[0];
+        if (nextStr <= yesterday) {
+          setDate(nextStr);
+          setEntries([]);
+          setLoaded(false);
+          await load(nextStr);
+        } else {
+          toast('No more past dates — you are at yesterday!', { icon: '📅' });
+        }
+      }
     } catch (err: any) {
       toast.error(err.response?.data?.message || 'Failed to save');
     } finally { setSaving(false); }
@@ -387,6 +401,22 @@ function BackdateEntryModal({ initialDate, onClose, onDone }: {
                 {loading
                   ? <><RefreshCw className="w-4 h-4 animate-spin" />Loading…</>
                   : <><Users className="w-4 h-4" />{loaded ? 'Reload' : 'Load Employees'}</>}
+              </button>
+              <button
+                onClick={() => {
+                  if (!date) return;
+                  const next = new Date(date);
+                  next.setDate(next.getDate() + 1);
+                  const nextStr = next.toISOString().split('T')[0];
+                  if (nextStr > yesterday) return;
+                  setDate(nextStr);
+                  setLoaded(false);
+                  setEntries([]);
+                }}
+                disabled={!date || date >= yesterday}
+                title="Go to next day"
+                className="btn-secondary text-sm flex items-center gap-1 disabled:opacity-40">
+                Next Day <ChevronRight className="w-4 h-4" />
               </button>
               {loaded && (
                 <p className="text-sm text-gray-500 ml-auto">
@@ -517,10 +547,17 @@ function BackdateEntryModal({ initialDate, onClose, onDone }: {
                   </div>
                   <div className="flex gap-3">
                     <button onClick={onClose} className="btn-secondary">Cancel</button>
-                    <button onClick={save} disabled={saving || includedCount === 0}
+                    <button onClick={() => save(false)} disabled={saving || includedCount === 0}
                       className="bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-medium px-6 py-2 rounded-lg flex items-center gap-2 transition-colors">
                       <Save className="w-4 h-4" />
                       {saving ? 'Saving…' : `Save ${includedCount} Records`}
+                    </button>
+                    <button onClick={() => save(true)} disabled={saving || includedCount === 0 || date >= yesterday}
+                      title="Save and move to next day automatically"
+                      className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-medium px-5 py-2 rounded-lg flex items-center gap-2 transition-colors">
+                      <Save className="w-4 h-4" />
+                      {saving ? 'Saving…' : 'Save & Next Day'}
+                      <ChevronRight className="w-4 h-4" />
                     </button>
                   </div>
                 </div>
