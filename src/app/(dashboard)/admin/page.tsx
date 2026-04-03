@@ -13,28 +13,33 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, Legend,
 } from 'recharts';
-import { format, subDays, startOfWeek, startOfMonth } from 'date-fns';
+import { format, subDays, startOfWeek, startOfMonth, endOfMonth, subMonths } from 'date-fns';
 
 // ── Date preset types ─────────────────────────────────────────────────────────
-type DatePreset = 'today' | 'yesterday' | 'week' | 'month' | 'custom';
+type DatePreset = 'today' | 'yesterday' | 'week' | 'month' | 'last_month' | 'custom';
 
 const PRESETS: { key: DatePreset; label: string }[] = [
-  { key: 'today',     label: 'Today' },
-  { key: 'yesterday', label: 'Yesterday' },
-  { key: 'week',      label: 'This Week' },
-  { key: 'month',     label: 'This Month' },
-  { key: 'custom',    label: 'Custom' },
+  { key: 'today',      label: 'Today' },
+  { key: 'yesterday',  label: 'Yesterday' },
+  { key: 'week',       label: 'This Week' },
+  { key: 'month',      label: 'This Month' },
+  { key: 'last_month', label: 'Last Month' },
+  { key: 'custom',     label: 'Custom' },
 ];
 
-function getDateRange(preset: DatePreset, custom: string): { from: string; to: string } {
+function getDateRange(preset: DatePreset, customFrom: string, customTo: string): { from: string; to: string } {
   const today = new Date();
   const fmt = (d: Date) => format(d, 'yyyy-MM-dd');
   switch (preset) {
-    case 'today':     return { from: fmt(today), to: fmt(today) };
-    case 'yesterday': { const d = subDays(today, 1); return { from: fmt(d), to: fmt(d) }; }
-    case 'week':      return { from: fmt(startOfWeek(today, { weekStartsOn: 1 })), to: fmt(today) };
-    case 'month':     return { from: fmt(startOfMonth(today)), to: fmt(today) };
-    case 'custom':    return { from: custom, to: custom };
+    case 'today':      return { from: fmt(today), to: fmt(today) };
+    case 'yesterday':  { const d = subDays(today, 1); return { from: fmt(d), to: fmt(d) }; }
+    case 'week':       return { from: fmt(startOfWeek(today, { weekStartsOn: 1 })), to: fmt(today) };
+    case 'month':      return { from: fmt(startOfMonth(today)), to: fmt(today) };
+    case 'last_month': {
+      const lm = subMonths(today, 1);
+      return { from: fmt(startOfMonth(lm)), to: fmt(endOfMonth(lm)) };
+    }
+    case 'custom':     return { from: customFrom, to: customTo || customFrom };
   }
 }
 
@@ -50,12 +55,14 @@ function computeAttStats(records: any[]) {
 
 // ── Date Filter Bar ───────────────────────────────────────────────────────────
 function DateFilterBar({
-  preset, onPreset, customDate, onCustom,
+  preset, onPreset, customFrom, customTo, onCustomFrom, onCustomTo,
 }: {
   preset: DatePreset;
   onPreset: (p: DatePreset) => void;
-  customDate: string;
-  onCustom: (d: string) => void;
+  customFrom: string;
+  customTo: string;
+  onCustomFrom: (d: string) => void;
+  onCustomTo: (d: string) => void;
 }) {
   return (
     <div className="flex flex-wrap items-center gap-2">
@@ -76,13 +83,21 @@ function DateFilterBar({
         ))}
       </div>
       {preset === 'custom' && (
-        <div className="flex items-center gap-1.5">
-          <Calendar className="w-4 h-4 text-gray-400" />
+        <div className="flex items-center gap-2 bg-white border border-gray-200 rounded-xl px-3 py-1.5 shadow-sm">
+          <Calendar className="w-4 h-4 text-gray-400 shrink-0" />
           <input
             type="date"
-            value={customDate}
-            onChange={e => onCustom(e.target.value)}
-            className="input text-sm py-1.5 w-40"
+            value={customFrom}
+            onChange={e => onCustomFrom(e.target.value)}
+            className="text-sm text-gray-700 outline-none w-36 cursor-pointer"
+          />
+          <span className="text-gray-400 font-medium">→</span>
+          <input
+            type="date"
+            value={customTo}
+            min={customFrom}
+            onChange={e => onCustomTo(e.target.value)}
+            className="text-sm text-gray-700 outline-none w-36 cursor-pointer"
           />
         </div>
       )}
@@ -105,20 +120,23 @@ export default function AdminDashboard() {
 
   // Date filter state
   const [preset, setPreset]         = useState<DatePreset>('today');
-  const [customDate, setCustomDate] = useState(format(new Date(), 'yyyy-MM-dd'));
+  const [customFrom, setCustomFrom] = useState(format(new Date(), 'yyyy-MM-dd'));
+  const [customTo,   setCustomTo]   = useState(format(new Date(), 'yyyy-MM-dd'));
 
   const now = new Date();
-  const dateRange = useMemo(() => getDateRange(preset, customDate), [preset, customDate]);
+  const dateRange = useMemo(() => getDateRange(preset, customFrom, customTo), [preset, customFrom, customTo]);
   const isToday = preset === 'today';
 
   // Label for the header
   const dateLabel = useMemo(() => {
-    if (preset === 'today') return "Today's Overview";
-    if (preset === 'yesterday') return "Yesterday's Overview";
-    if (preset === 'week') return 'This Week';
-    if (preset === 'month') return 'This Month';
-    return fmtDate(customDate);
-  }, [preset, customDate]);
+    if (preset === 'today')      return "Today's Overview";
+    if (preset === 'yesterday')  return "Yesterday's Overview";
+    if (preset === 'week')       return 'This Week';
+    if (preset === 'month')      return 'This Month';
+    if (preset === 'last_month') return 'Last Month';
+    if (customFrom === customTo) return fmtDate(customFrom);
+    return `${fmtDate(customFrom)} – ${fmtDate(customTo)}`;
+  }, [preset, customFrom, customTo]);
 
   // ── Loaders ──────────────────────────────────────────────────────────────
   const loadStatic = useCallback(async () => {
@@ -194,9 +212,11 @@ export default function AdminDashboard() {
         </div>
         <DateFilterBar
           preset={preset}
-          onPreset={(p) => { setPreset(p); }}
-          customDate={customDate}
-          onCustom={(d) => setCustomDate(d)}
+          onPreset={(p) => setPreset(p)}
+          customFrom={customFrom}
+          customTo={customTo}
+          onCustomFrom={(d) => setCustomFrom(d)}
+          onCustomTo={(d) => setCustomTo(d)}
         />
       </div>
 
