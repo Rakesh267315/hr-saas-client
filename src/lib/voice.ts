@@ -56,10 +56,20 @@ export function speak(message: string) {
 export function voiceCheckIn(name: string, time: string, lateMinutes?: number) {
   const h        = new Date().getHours();
   const greeting = h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening';
-  const lateMsg  = lateMinutes && lateMinutes > 0
-    ? ` You are ${lateMinutes} minutes late today.`
-    : ' You are right on time!';
-  speak(`${greeting} ${name}! You have checked in at ${time}.${lateMsg} Have a productive day!`);
+
+  if (lateMinutes && lateMinutes > 0) {
+    // 😡 Angry late message — severity increases with minutes
+    if (lateMinutes >= 60) {
+      speak(`${name}! You are ${lateMinutes} minutes late! This is completely unacceptable. You checked in at ${time}. Please be on time tomorrow, otherwise strict action will be taken!`);
+    } else if (lateMinutes >= 30) {
+      speak(`${name}, you are ${lateMinutes} minutes late again! Checked in at ${time}. This is not good. Please improve your punctuality immediately!`);
+    } else {
+      speak(`${name}, you are ${lateMinutes} minutes late today. Check-in time was ${time}. Please try to be on time. Every minute counts!`);
+    }
+  } else {
+    // 😊 On time — happy message
+    speak(`${greeting} ${name}! You have checked in at ${time}. You are right on time! Have a productive day!`);
+  }
 }
 
 export function voiceCheckOut(name: string, time: string, workHours?: number) {
