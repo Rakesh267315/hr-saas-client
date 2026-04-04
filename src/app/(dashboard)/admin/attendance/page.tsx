@@ -1,13 +1,115 @@
 'use client';
 import { useEffect, useState, useMemo } from 'react';
-import { attendanceApi, employeeApi } from '@/lib/api';
+import { attendanceApi, employeeApi, notifApi } from '@/lib/api';
 import { usePersistState } from '@/lib/hooks';
 import Badge from '@/components/ui/Badge';
 import { fmtDate } from '@/lib/utils';
 import toast from 'react-hot-toast';
-import { RefreshCw, Users, Edit2, Unlock, Lock, AlertCircle, X, Save, Calculator, DatabaseBackup, ClipboardList, Check, ChevronDown, Clock, ChevronRight, RotateCcw } from 'lucide-react';
+import { RefreshCw, Users, Edit2, Unlock, Lock, AlertCircle, X, Save, Calculator, DatabaseBackup, ClipboardList, Check, ChevronDown, Clock, ChevronRight, RotateCcw, Mic } from 'lucide-react';
 
 const STATUSES = ['present', 'late', 'half_day', 'absent', 'on_leave'];
+
+// ── Quick voice message presets ───────────────────────────────────────────────
+const QUICK_MESSAGES = [
+  '📋 Please come to my office immediately.',
+  '📅 There is a meeting in 5 minutes. Please join.',
+  '📧 Please check your email, it is urgent.',
+  '⚠️ You have been marked late today. Please improve punctuality.',
+  '✅ Great work today! Keep it up.',
+  '🏠 You may leave early today. Good job!',
+  '📞 Please call the office as soon as possible.',
+  '🔔 Your task deadline is approaching. Please update status.',
+];
+
+// ── Voice Message Modal ───────────────────────────────────────────────────────
+function VoiceMessageModal({ employee, onClose }: { employee: any; onClose: () => void }) {
+  const [message, setMessage] = useState('');
+  const [sending, setSending] = useState(false);
+
+  const send = async () => {
+    if (!message.trim()) return toast.error('Please type or select a message');
+    setSending(true);
+    try {
+      await notifApi.sendVoice(employee._id, message.trim());
+      toast.success(`🎙️ Voice message sent to ${employee.employee?.firstName || employee.firstName}!`);
+      onClose();
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || 'Failed to send voice message');
+    } finally { setSending(false); }
+  };
+
+  const empName = employee.employee?.firstName
+    ? `${employee.employee.firstName} ${employee.employee.lastName || ''}`
+    : `${employee.firstName || ''} ${employee.lastName || ''}`;
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl">
+        {/* Header */}
+        <div className="flex items-center justify-between p-5 border-b">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-purple-100 rounded-xl flex items-center justify-center">
+              <Mic className="w-5 h-5 text-purple-600" />
+            </div>
+            <div>
+              <h2 className="text-lg font-bold text-gray-900">Send Voice Message</h2>
+              <p className="text-sm text-gray-500">To: <span className="font-medium text-purple-600">{empName.trim()}</span></p>
+            </div>
+          </div>
+          <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-lg"><X className="w-5 h-5" /></button>
+        </div>
+
+        <div className="p-5 space-y-4">
+          {/* Quick presets */}
+          <div>
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Quick Messages</p>
+            <div className="grid grid-cols-1 gap-1.5 max-h-44 overflow-y-auto pr-1">
+              {QUICK_MESSAGES.map((msg) => (
+                <button
+                  key={msg}
+                  onClick={() => setMessage(msg)}
+                  className={`text-left text-sm px-3 py-2 rounded-lg border transition-all ${
+                    message === msg
+                      ? 'bg-purple-50 border-purple-400 text-purple-700 font-medium'
+                      : 'border-gray-200 hover:bg-gray-50 text-gray-700'
+                  }`}
+                >
+                  {msg}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Custom message */}
+          <div>
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Custom Message</p>
+            <textarea
+              value={message}
+              onChange={e => setMessage(e.target.value)}
+              placeholder="Type a custom voice message..."
+              rows={3}
+              className="input w-full resize-none text-sm"
+            />
+            <p className="text-xs text-gray-400 mt-1">This message will be read aloud on the employee's dashboard 🔊</p>
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div className="flex items-center justify-end gap-3 px-5 pb-5">
+          <button onClick={onClose} className="btn-secondary">Cancel</button>
+          <button
+            onClick={send}
+            disabled={sending || !message.trim()}
+            className="flex items-center gap-2 bg-purple-600 hover:bg-purple-700 disabled:opacity-50 text-white font-medium px-5 py-2 rounded-lg transition-colors"
+          >
+            <Mic className="w-4 h-4" />
+            {sending ? 'Sending…' : 'Send Voice Message'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 // ── Correction Modal ────────────────────────────────────────────────────────
 function CorrectionModal({ record, onClose, onSave }: { record: any; onClose: () => void; onSave: () => void }) {
@@ -804,9 +906,10 @@ export default function AdminAttendancePage() {
   const [stats, setStats] = useState<any>({});
   const [loading, setLoading] = useState(true);
   const [viewDate, setViewDate] = usePersistState('att_viewDate', new Date().toISOString().split('T')[0]);
-  const [editRecord, setEditRecord]   = useState<any>(null);
-  const [unlockRecord, setUnlockRecord] = useState<any>(null);
-  const [resetLoading, setResetLoading] = useState<string | null>(null);
+  const [editRecord, setEditRecord]       = useState<any>(null);
+  const [unlockRecord, setUnlockRecord]   = useState<any>(null);
+  const [voiceMsgRecord, setVoiceMsgRecord] = useState<any>(null);
+  const [resetLoading, setResetLoading]   = useState<string | null>(null);
 
   const handleReset = async (r: any) => {
     const name = `${r.employee?.firstName || ''} ${r.employee?.lastName || ''}`.trim();
@@ -992,6 +1095,13 @@ export default function AdminAttendancePage() {
                           ? <RefreshCw className="w-4 h-4 animate-spin" />
                           : <RotateCcw className="w-4 h-4" />}
                       </button>
+                      <button
+                        onClick={() => setVoiceMsgRecord(r)}
+                        className="p-1.5 text-purple-500 hover:bg-purple-50 rounded-lg transition-colors"
+                        title="Send voice message to this employee"
+                      >
+                        <Mic className="w-4 h-4" />
+                      </button>
                     </div>
                   </td>
                 </tr>
@@ -1004,6 +1114,12 @@ export default function AdminAttendancePage() {
       {/* Modals */}
       {editRecord && (
         <CorrectionModal record={editRecord} onClose={() => setEditRecord(null)} onSave={() => load()} />
+      )}
+      {voiceMsgRecord && (
+        <VoiceMessageModal
+          employee={voiceMsgRecord}
+          onClose={() => setVoiceMsgRecord(null)}
+        />
       )}
       {unlockRecord && (
         <UnlockModal record={unlockRecord} onClose={() => setUnlockRecord(null)} onSave={() => { setUnlockRecord(null); load(); }} />

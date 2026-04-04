@@ -2,7 +2,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import dynamic from 'next/dynamic';
 import { useAuthStore } from '@/store/authStore';
-import { attendanceApi, leaveApi, payrollApi, breakApi, settingsApi, faceApi } from '@/lib/api';
+import { attendanceApi, leaveApi, payrollApi, breakApi, settingsApi, faceApi, notifApi } from '@/lib/api';
 import Badge from '@/components/ui/Badge';
 import { fmtDate, fmtCurrency } from '@/lib/utils';
 import { voiceCheckIn, voiceCheckOut, voiceBreakStart, voiceBreakEnd, unlockAndSpeak } from '@/lib/voice';
@@ -118,6 +118,47 @@ export default function EmployeeDashboard() {
   }, [employee?._id]);
 
   useEffect(() => { loadData(); loadToday(); }, [employee]);
+
+  // ── Voice Message Polling ─────────────────────────────────────────────────
+  // Polls every 30s for unread voice messages from admin, plays them via voice
+  const playedIds = useRef<Set<string>>(new Set());
+  const pollVoiceMessages = useCallback(async () => {
+    if (!employee?._id) return;
+    try {
+      const res = await notifApi.getVoiceMessages();
+      const messages: any[] = res.data.data || [];
+      for (const msg of messages) {
+        if (playedIds.current.has(msg.id)) continue;
+        playedIds.current.add(msg.id);
+        // Show toast
+        toast(`🎙️ ${msg.title}`, { duration: 6000, icon: '📢' });
+        // Play voice — works whether voiceEnabled or not (admin message is important!)
+        const text = `Attention ${employee?.firstName || ''}! Message from admin: ${msg.message}`;
+        if (typeof window !== 'undefined' && window.speechSynthesis) {
+          const synth = window.speechSynthesis;
+          if (synth.paused) synth.resume();
+          synth.cancel();
+          const u  = new SpeechSynthesisUtterance(text);
+          u.lang   = 'en-US'; u.volume = 1; u.rate = 0.85; u.pitch = 1.05;
+          const voices = synth.getVoices();
+          const best = voices.find(v => v.name.includes('Google') && v.lang.startsWith('en'))
+                    || voices.find(v => v.name === 'Samantha')
+                    || voices.find(v => v.lang.startsWith('en')) || null;
+          if (best) u.voice = best;
+          synth.speak(u);
+        }
+        // Mark as read after 2s
+        setTimeout(() => notifApi.markRead(msg.id).catch(() => {}), 2000);
+      }
+    } catch { /* silent */ }
+  }, [employee]);
+
+  useEffect(() => {
+    if (!employee?._id) return;
+    pollVoiceMessages(); // immediate first poll
+    const interval = setInterval(pollVoiceMessages, 30000); // then every 30s
+    return () => clearInterval(interval);
+  }, [employee, pollVoiceMessages]);
 
   // ── Derived state ──────────────────────────────────────────────────────────
   // FIX: backend returns snake_case `end_time`, NOT camelCase `endTime`

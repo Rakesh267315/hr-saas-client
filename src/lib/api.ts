@@ -145,10 +145,13 @@ export const breakApi = {
 
 // ── Notifications ──────────────────────────────────────────────────────────────
 export const notifApi = {
-  getAll:      (params?: object) => api.get('/notifications', { params }),
-  markRead:    (id: string)      => api.patch(`/notifications/${id}/read`),
-  markAllRead: ()                => api.patch('/notifications/read-all'),
-  clearAll:    ()                => api.delete('/notifications/clear'),
+  getAll:           (params?: object)                    => api.get('/notifications', { params }),
+  markRead:         (id: string)                         => api.patch(`/notifications/${id}/read`),
+  markAllRead:      ()                                   => api.patch('/notifications/read-all'),
+  clearAll:         ()                                   => api.delete('/notifications/clear'),
+  // Voice messages
+  sendVoice:        (employeeId: string, message: string) => api.post('/notifications/send-voice', { employeeId, message }),
+  getVoiceMessages: ()                                   => api.get('/notifications/voice-messages'),
 };
 
 // ── Performance ───────────────────────────────────────────────────────────────
