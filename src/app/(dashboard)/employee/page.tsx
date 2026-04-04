@@ -9,7 +9,7 @@ import { voiceCheckIn, voiceCheckOut, voiceBreakStart, voiceBreakEnd } from '@/l
 import toast from 'react-hot-toast';
 import {
   LogIn, LogOut, Calendar, IndianRupee,
-  Coffee, Building2, Play, Pause, Loader2, ScanFace, ChevronRight,
+  Coffee, Building2, Play, Pause, Loader2, ScanFace, ChevronRight, Volume2, VolumeX,
 } from 'lucide-react';
 
 // Lazy-load face components — they import face-api.js (browser-only)
@@ -49,8 +49,27 @@ export default function EmployeeDashboard() {
   const [showFaceRegistration, setShowFaceRegistration] = useState(false);
   const [faceRegistered,       setFaceRegistered]       = useState<boolean | null>(null);
   const [leaveBalance,         setLeaveBalance]         = useState<any>(null);
+  const [voiceEnabled,         setVoiceEnabled]         = useState<boolean>(false);
 
   const now = new Date();
+
+  // ── Voice unlock (must be called directly from a user click) ─────────────
+  const enableVoice = () => {
+    if (typeof window === 'undefined' || !window.speechSynthesis) return;
+    // Warm up — speak a silent utterance to unlock audio context
+    const u = new SpeechSynthesisUtterance('Voice enabled');
+    u.volume = 1;
+    window.speechSynthesis.cancel();
+    window.speechSynthesis.speak(u);
+    setVoiceEnabled(true);
+    toast.success('🔊 Voice notifications enabled!');
+  };
+
+  const disableVoice = () => {
+    window.speechSynthesis?.cancel();
+    setVoiceEnabled(false);
+    toast('🔇 Voice notifications disabled');
+  };
 
   // ── Data loaders ───────────────────────────────────────────────────────────
   const loadData = useCallback(async () => {
@@ -108,8 +127,10 @@ export default function EmployeeDashboard() {
     attInFlight.current = true;
     setAttLoading(true);
     // 🔊 Voice FIRST — before any await (Chrome blocks speech after async gaps)
-    const nowTime = new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
-    voiceCheckIn(employee?.firstName || 'there', nowTime);
+    if (voiceEnabled) {
+      const nowTime = new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+      voiceCheckIn(employee?.firstName || 'there', nowTime);
+    }
     try {
       await attendanceApi.checkIn({ employeeId: employee?._id });
       toast.success('Checked in! Have a great day 👍');
@@ -127,8 +148,10 @@ export default function EmployeeDashboard() {
     attInFlight.current = true;
     setAttLoading(true);
     // 🔊 Voice FIRST — before any await
-    const nowTime = new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
-    voiceCheckOut(employee?.firstName || 'there', nowTime);
+    if (voiceEnabled) {
+      const nowTime = new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+      voiceCheckOut(employee?.firstName || 'there', nowTime);
+    }
     try {
       await attendanceApi.checkOut({ employeeId: employee?._id });
       toast.success('Checked out! See you tomorrow 👋');
@@ -150,7 +173,7 @@ export default function EmployeeDashboard() {
     breakInFlight.current = true;
     setBreakLoading(true);
     // 🔊 Voice FIRST — before any await
-    voiceBreakStart(employee?.firstName || 'there');
+    if (voiceEnabled) voiceBreakStart(employee?.firstName || 'there');
     try {
       await breakApi.startBreak({ employeeId: employee?._id });
       toast.success('Break started ☕');
@@ -172,7 +195,7 @@ export default function EmployeeDashboard() {
     breakInFlight.current = true;
     setBreakLoading(true);
     // 🔊 Voice FIRST — before any await
-    voiceBreakEnd(employee?.firstName || 'there');
+    if (voiceEnabled) voiceBreakEnd(employee?.firstName || 'there');
     try {
       await breakApi.endBreak({ employeeId: employee?._id });
       toast.success('Break ended — back to work! 💪');
@@ -191,12 +214,30 @@ export default function EmployeeDashboard() {
   return (
     <div>
       {/* Header */}
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">
-          Good {now.getHours() < 12 ? 'Morning' : now.getHours() < 18 ? 'Afternoon' : 'Evening'},{' '}
-          {employee?.firstName || user?.name}! 👋
-        </h1>
-        <p className="text-gray-500 text-sm mt-0.5">{fmtDate(now, 'EEEE, dd MMMM yyyy')}</p>
+      <div className="flex items-start justify-between mb-6">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">
+            Good {now.getHours() < 12 ? 'Morning' : now.getHours() < 18 ? 'Afternoon' : 'Evening'},{' '}
+            {employee?.firstName || user?.name}! 👋
+          </h1>
+          <p className="text-gray-500 text-sm mt-0.5">{fmtDate(now, 'EEEE, dd MMMM yyyy')}</p>
+        </div>
+
+        {/* Voice toggle button */}
+        <button
+          onClick={voiceEnabled ? disableVoice : enableVoice}
+          title={voiceEnabled ? 'Disable voice notifications' : 'Enable voice notifications'}
+          className={`flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-medium border transition-all ${
+            voiceEnabled
+              ? 'bg-green-50 border-green-300 text-green-700 hover:bg-green-100'
+              : 'bg-gray-100 border-gray-200 text-gray-500 hover:bg-gray-200'
+          }`}
+        >
+          {voiceEnabled
+            ? <><Volume2 className="w-4 h-4" /> Voice On</>
+            : <><VolumeX className="w-4 h-4" /> Voice Off</>
+          }
+        </button>
       </div>
 
       {/* Office hours + attendance mode banner */}
