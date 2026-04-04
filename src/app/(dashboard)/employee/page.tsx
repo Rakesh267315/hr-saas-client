@@ -134,8 +134,17 @@ export default function EmployeeDashboard() {
     setAttLoading(true);
     // 🔊 Voice FIRST — before any await (Chrome blocks speech after async gaps)
     if (voiceEnabled) {
-      const nowTime = new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
-      voiceCheckIn(employee?.firstName || 'there', nowTime);
+      const now2    = new Date();
+      const nowTime = now2.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+      // Calculate late minutes from office start time (settings) — no API needed
+      let lateMin   = 0;
+      if (settings?.officeStartTime) {
+        const [oh, om] = settings.officeStartTime.split(':').map(Number);
+        const officeStart = new Date(now2);
+        officeStart.setHours(oh, om, 0, 0);
+        lateMin = Math.max(0, Math.floor((now2.getTime() - officeStart.getTime()) / 60000));
+      }
+      voiceCheckIn(employee?.firstName || 'there', nowTime, lateMin);
     }
     try {
       await attendanceApi.checkIn({ employeeId: employee?._id });
