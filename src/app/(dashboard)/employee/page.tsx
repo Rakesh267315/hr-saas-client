@@ -107,16 +107,13 @@ export default function EmployeeDashboard() {
     if (attInFlight.current || attLoading) return; // double-click guard
     attInFlight.current = true;
     setAttLoading(true);
+    // 🔊 Voice FIRST — before any await (Chrome blocks speech after async gaps)
+    const nowTime = new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+    voiceCheckIn(employee?.firstName || 'there', nowTime);
     try {
-      const res = await attendanceApi.checkIn({ employeeId: employee?._id });
+      await attendanceApi.checkIn({ employeeId: employee?._id });
       toast.success('Checked in! Have a great day 👍');
       await loadToday();
-      // 🔊 Voice notification
-      const record = res.data?.data;
-      const time   = record?.checkIn
-        ? new Date(record.checkIn).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })
-        : new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
-      voiceCheckIn(employee?.firstName || 'there', time, record?.lateMinutes);
     } catch (err: any) {
       toast.error(err.response?.data?.message || 'Check-in failed');
     } finally {
@@ -129,17 +126,13 @@ export default function EmployeeDashboard() {
     if (attInFlight.current || attLoading) return;
     attInFlight.current = true;
     setAttLoading(true);
+    // 🔊 Voice FIRST — before any await
+    const nowTime = new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+    voiceCheckOut(employee?.firstName || 'there', nowTime);
     try {
-      const res = await attendanceApi.checkOut({ employeeId: employee?._id });
+      await attendanceApi.checkOut({ employeeId: employee?._id });
       toast.success('Checked out! See you tomorrow 👋');
       await loadToday();
-      // 🔊 Voice notification
-      const record = res.data?.data;
-      const time   = record?.checkOut
-        ? new Date(record.checkOut).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })
-        : new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
-      const hours  = record?.workHours ? Math.round(record.workHours) : undefined;
-      voiceCheckOut(employee?.firstName || 'there', time, hours);
     } catch (err: any) {
       toast.error(err.response?.data?.message || 'Check-out failed');
     } finally {
@@ -156,12 +149,12 @@ export default function EmployeeDashboard() {
     }
     breakInFlight.current = true;
     setBreakLoading(true);
+    // 🔊 Voice FIRST — before any await
+    voiceBreakStart(employee?.firstName || 'there');
     try {
       await breakApi.startBreak({ employeeId: employee?._id });
       toast.success('Break started ☕');
       await loadToday();
-      // 🔊 Voice notification
-      voiceBreakStart(employee?.firstName || 'there');
     } catch (err: any) {
       toast.error(err.response?.data?.message || 'Failed to start break');
     } finally {
@@ -178,12 +171,12 @@ export default function EmployeeDashboard() {
     }
     breakInFlight.current = true;
     setBreakLoading(true);
+    // 🔊 Voice FIRST — before any await
+    voiceBreakEnd(employee?.firstName || 'there');
     try {
       await breakApi.endBreak({ employeeId: employee?._id });
       toast.success('Break ended — back to work! 💪');
       await loadToday();
-      // 🔊 Voice notification
-      voiceBreakEnd(employee?.firstName || 'there');
     } catch (err: any) {
       toast.error(err.response?.data?.message || 'Failed to end break');
     } finally {
