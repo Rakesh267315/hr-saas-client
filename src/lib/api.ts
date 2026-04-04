@@ -86,6 +86,7 @@ export const attendanceApi = {
   markAbsent: (data: object) => api.post('/attendance/mark-absent', data),
   correct: (id: string, data: object) => api.patch(`/attendance/${id}/correct`, data),
   unlock: (id: string, data: object) => api.patch(`/attendance/${id}/unlock`, data),
+  reset:  (id: string) => api.delete(`/attendance/${id}/reset`),
   recalculate: (date?: string) => api.post('/attendance/recalculate', { date }),
   backfill: (data: object) => api.post('/attendance/backfill', data),
   bulkEntry: (data: object) => api.post('/attendance/bulk-entry', data),

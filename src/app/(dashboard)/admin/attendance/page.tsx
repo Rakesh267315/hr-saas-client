@@ -5,7 +5,7 @@ import { usePersistState } from '@/lib/hooks';
 import Badge from '@/components/ui/Badge';
 import { fmtDate } from '@/lib/utils';
 import toast from 'react-hot-toast';
-import { RefreshCw, Users, Edit2, Unlock, Lock, AlertCircle, X, Save, Calculator, DatabaseBackup, ClipboardList, Check, ChevronDown, Clock, ChevronRight } from 'lucide-react';
+import { RefreshCw, Users, Edit2, Unlock, Lock, AlertCircle, X, Save, Calculator, DatabaseBackup, ClipboardList, Check, ChevronDown, Clock, ChevronRight, RotateCcw } from 'lucide-react';
 
 const STATUSES = ['present', 'late', 'half_day', 'absent', 'on_leave'];
 
@@ -804,8 +804,24 @@ export default function AdminAttendancePage() {
   const [stats, setStats] = useState<any>({});
   const [loading, setLoading] = useState(true);
   const [viewDate, setViewDate] = usePersistState('att_viewDate', new Date().toISOString().split('T')[0]);
-  const [editRecord, setEditRecord] = useState<any>(null);
+  const [editRecord, setEditRecord]   = useState<any>(null);
   const [unlockRecord, setUnlockRecord] = useState<any>(null);
+  const [resetLoading, setResetLoading] = useState<string | null>(null);
+
+  const handleReset = async (r: any) => {
+    const name = `${r.employee?.firstName || ''} ${r.employee?.lastName || ''}`.trim();
+    if (!confirm(`Reset attendance for ${name}?\n\nThis will completely delete their check-in, check-out and breaks for today. They will be able to check in fresh.`)) return;
+    setResetLoading(r._id);
+    try {
+      await attendanceApi.reset(r._id);
+      toast.success(`✅ Attendance reset for ${name}. They can now check in again.`);
+      await load();
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || 'Reset failed');
+    } finally {
+      setResetLoading(null);
+    }
+  };
   const [showBackfill,  setShowBackfill]  = useState(false);
   const [showBackdate,  setShowBackdate]  = useState(false);
 
@@ -966,6 +982,16 @@ export default function AdminAttendancePage() {
                           <Unlock className="w-4 h-4" />
                         </button>
                       )}
+                      <button
+                        onClick={() => handleReset(r)}
+                        disabled={resetLoading === r._id}
+                        className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-40"
+                        title="Reset attendance — employee can check in fresh"
+                      >
+                        {resetLoading === r._id
+                          ? <RefreshCw className="w-4 h-4 animate-spin" />
+                          : <RotateCcw className="w-4 h-4" />}
+                      </button>
                     </div>
                   </td>
                 </tr>
