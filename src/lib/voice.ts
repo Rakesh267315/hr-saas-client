@@ -1,9 +1,6 @@
 // ── Voice Notification Utility (Web Speech API — 100% free) ──────────────────
-// IMPORTANT: speak() must stay synchronous — Chrome blocks speech if called
-// after any await (user-gesture context is lost across async boundaries).
 
 let _voice: SpeechSynthesisVoice | null = null;
-let _voicesReady = false;
 
 function pickVoice(voices: SpeechSynthesisVoice[]): SpeechSynthesisVoice | null {
   return (
@@ -17,35 +14,35 @@ function pickVoice(voices: SpeechSynthesisVoice[]): SpeechSynthesisVoice | null 
   );
 }
 
-// Pre-load voices as early as possible (module import time)
+// Pre-load voices at module load time
 if (typeof window !== 'undefined' && window.speechSynthesis) {
-  const voices = window.speechSynthesis.getVoices();
-  if (voices.length > 0) {
-    _voice = pickVoice(voices);
-    _voicesReady = true;
-  } else {
-    // Chrome loads voices asynchronously — cache when ready
-    window.speechSynthesis.onvoiceschanged = () => {
-      _voice = pickVoice(window.speechSynthesis.getVoices());
-      _voicesReady = true;
-    };
-  }
+  const load = () => { _voice = pickVoice(window.speechSynthesis.getVoices()); };
+  const v = window.speechSynthesis.getVoices();
+  if (v.length > 0) load();
+  else window.speechSynthesis.onvoiceschanged = load;
+
+  // ── Chrome Bug Fix: speechSynthesis auto-pauses after ~15s ──────────────
+  // Resume every 10s to keep it alive
+  setInterval(() => {
+    if (window.speechSynthesis.paused) window.speechSynthesis.resume();
+  }, 10000);
 }
 
-// ── Core speak (SYNCHRONOUS — must be called directly from user gesture) ──────
+// ── Core speak ────────────────────────────────────────────────────────────────
 export function speak(message: string) {
   if (typeof window === 'undefined' || !window.speechSynthesis) return;
 
   const synth = window.speechSynthesis;
+
+  // Force-resume if Chrome paused it
+  if (synth.paused) synth.resume();
   synth.cancel();
 
-  const u    = new SpeechSynthesisUtterance(message);
-  u.lang     = 'en-IN';
-  u.rate     = 0.9;
-  u.pitch    = 1;
-  u.volume   = 1;
-
-  // Use cached voice if ready, else let browser pick default
+  const u  = new SpeechSynthesisUtterance(message);
+  u.lang   = 'en-IN';
+  u.rate   = 0.88;
+  u.pitch  = 1;
+  u.volume = 1;
   if (_voice) u.voice = _voice;
 
   synth.speak(u);
@@ -58,7 +55,6 @@ export function voiceCheckIn(name: string, time: string, lateMinutes?: number) {
   const greeting = h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening';
 
   if (lateMinutes && lateMinutes > 0) {
-    // 😡 Angry late message — severity increases with minutes
     if (lateMinutes >= 60) {
       speak(`${name}! You are ${lateMinutes} minutes late! This is completely unacceptable. You checked in at ${time}. Please be on time tomorrow, otherwise strict action will be taken!`);
     } else if (lateMinutes >= 30) {
@@ -67,15 +63,12 @@ export function voiceCheckIn(name: string, time: string, lateMinutes?: number) {
       speak(`${name}, you are ${lateMinutes} minutes late today. Check-in time was ${time}. Please try to be on time. Every minute counts!`);
     }
   } else {
-    // 😊 On time — happy message
     speak(`${greeting} ${name}! You have checked in at ${time}. You are right on time! Have a productive day!`);
   }
 }
 
 export function voiceCheckOut(name: string, time: string, workHours?: number) {
-  const hoursMsg = workHours && workHours > 0
-    ? ` You worked for ${workHours} hours today.`
-    : '';
+  const hoursMsg = workHours && workHours > 0 ? ` You worked for ${workHours} hours today.` : '';
   speak(`Goodbye ${name}! You have checked out at ${time}.${hoursMsg} See you tomorrow, take care!`);
 }
 

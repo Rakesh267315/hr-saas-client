@@ -60,13 +60,16 @@ export default function EmployeeDashboard() {
   // ── Voice unlock (must be called directly from a user click) ─────────────
   const enableVoice = () => {
     if (typeof window === 'undefined' || !window.speechSynthesis) return;
-    // Warm up — speak a message to unlock audio context
-    const u = new SpeechSynthesisUtterance('Voice notifications enabled');
+    const synth = window.speechSynthesis;
+    // Resume if Chrome paused it, then warm up
+    if (synth.paused) synth.resume();
+    synth.cancel();
+    const u  = new SpeechSynthesisUtterance('Voice notifications enabled');
+    u.lang   = 'en-IN';
     u.volume = 1;
-    window.speechSynthesis.cancel();
-    window.speechSynthesis.speak(u);
+    synth.speak(u);
     setVoiceEnabled(true);
-    localStorage.setItem('hrflow_voice', 'true');   // 💾 Save setting
+    localStorage.setItem('hrflow_voice', 'true');
     toast.success('🔊 Voice notifications enabled!');
   };
 
