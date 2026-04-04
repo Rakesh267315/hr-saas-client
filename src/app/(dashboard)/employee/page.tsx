@@ -49,25 +49,31 @@ export default function EmployeeDashboard() {
   const [showFaceRegistration, setShowFaceRegistration] = useState(false);
   const [faceRegistered,       setFaceRegistered]       = useState<boolean | null>(null);
   const [leaveBalance,         setLeaveBalance]         = useState<any>(null);
-  const [voiceEnabled,         setVoiceEnabled]         = useState<boolean>(false);
+  const [voiceEnabled, setVoiceEnabled] = useState<boolean>(() => {
+    // Read from localStorage on first render
+    if (typeof window === 'undefined') return false;
+    return localStorage.getItem('hrflow_voice') === 'true';
+  });
 
   const now = new Date();
 
   // ── Voice unlock (must be called directly from a user click) ─────────────
   const enableVoice = () => {
     if (typeof window === 'undefined' || !window.speechSynthesis) return;
-    // Warm up — speak a silent utterance to unlock audio context
-    const u = new SpeechSynthesisUtterance('Voice enabled');
+    // Warm up — speak a message to unlock audio context
+    const u = new SpeechSynthesisUtterance('Voice notifications enabled');
     u.volume = 1;
     window.speechSynthesis.cancel();
     window.speechSynthesis.speak(u);
     setVoiceEnabled(true);
+    localStorage.setItem('hrflow_voice', 'true');   // 💾 Save setting
     toast.success('🔊 Voice notifications enabled!');
   };
 
   const disableVoice = () => {
     window.speechSynthesis?.cancel();
     setVoiceEnabled(false);
+    localStorage.setItem('hrflow_voice', 'false');  // 💾 Save setting
     toast('🔇 Voice notifications disabled');
   };
 
