@@ -29,8 +29,10 @@ function VoiceMessageModal({ employee, onClose }: { employee: any; onClose: () =
   const send = async () => {
     if (!message.trim()) return toast.error('Please type or select a message');
     setSending(true);
+    // attendance record: employee._id = attendance ID, employee.employee._id = actual employee ID
+    const empId = employee.employee?._id || employee.employeeId || employee._id;
     try {
-      await notifApi.sendVoice(employee._id, message.trim());
+      await notifApi.sendVoice(empId, message.trim());
       toast.success(`🎙️ Voice message sent to ${employee.employee?.firstName || employee.firstName}!`);
       onClose();
     } catch (err: any) {
