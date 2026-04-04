@@ -120,8 +120,48 @@ export default function EmployeeDashboard() {
   useEffect(() => { loadData(); loadToday(); }, [employee]);
 
   // ── Voice Message Polling ─────────────────────────────────────────────────
-  // Polls every 30s — auto-plays voice announcements from admin, no UI banner
-  const playedIds = useRef<Set<string>>(new Set());
+  // Chrome blocks speechSynthesis without a prior user gesture.
+  // Solution: queue pending messages, play on next user click if blocked.
+  const playedIds    = useRef<Set<string>>(new Set());
+  const pendingVoice = useRef<string[]>([]);
+
+  const speakNow = useCallback((text: string) => {
+    if (typeof window === 'undefined' || !window.speechSynthesis) return;
+    const synth = window.speechSynthesis;
+    if (synth.paused) synth.resume();
+    synth.cancel();
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = 'en-US'; u.volume = 1; u.rate = 0.88; u.pitch = 1.0;
+    u.onerror = (e) => {
+      // If blocked by Chrome autoplay policy → keep in queue for next user click
+      if (e.error === 'not-allowed' || e.error === 'canceled') {
+        if (!pendingVoice.current.includes(text)) pendingVoice.current.push(text);
+      }
+    };
+    const doSpeak = () => {
+      const voices = window.speechSynthesis.getVoices();
+      const best = voices.find(v => v.name === 'Google US English')
+                || voices.find(v => v.name.startsWith('Google') && v.lang.startsWith('en'))
+                || voices.find(v => v.name.includes('Microsoft') && v.name.includes('Neural') && v.lang.startsWith('en'))
+                || voices.find(v => v.name === 'Samantha')
+                || voices.find(v => v.lang.startsWith('en')) || null;
+      if (best) { u.voice = best; u.lang = best.lang; }
+      synth.speak(u);
+    };
+    if (synth.getVoices().length > 0) doSpeak();
+    else { synth.addEventListener('voiceschanged', doSpeak, { once: true }); setTimeout(doSpeak, 1500); }
+  }, []);
+
+  // On ANY user click → play any pending voice messages
+  useEffect(() => {
+    const onUserClick = () => {
+      if (pendingVoice.current.length === 0) return;
+      const text = pendingVoice.current.shift()!;
+      speakNow(text);
+    };
+    document.addEventListener('click', onUserClick);
+    return () => document.removeEventListener('click', onUserClick);
+  }, [speakNow]);
 
   const pollVoiceMessages = useCallback(async () => {
     if (!employee?._id) return;
@@ -131,43 +171,18 @@ export default function EmployeeDashboard() {
       for (const msg of messages) {
         if (playedIds.current.has(msg.id)) continue;
         playedIds.current.add(msg.id);
-
         const text = `Attention ${employee?.firstName || ''}! ${msg.message}`;
-
-        // Auto-play announcement voice
-        if (typeof window !== 'undefined' && window.speechSynthesis) {
-          const synth = window.speechSynthesis;
-          if (synth.paused) synth.resume();
-          synth.cancel();
-          const u = new SpeechSynthesisUtterance(text);
-          u.lang = 'en-US'; u.volume = 1; u.rate = 0.88; u.pitch = 1.0;
-          const trySpeak = () => {
-            const voices = synth.getVoices();
-            const best = voices.find(v => v.name === 'Google US English')
-                      || voices.find(v => v.name.startsWith('Google') && v.lang.startsWith('en'))
-                      || voices.find(v => v.name.includes('Microsoft') && v.name.includes('Neural') && v.lang.startsWith('en'))
-                      || voices.find(v => v.name === 'Samantha')
-                      || voices.find(v => v.lang.startsWith('en')) || null;
-            if (best) { u.voice = best; u.lang = best.lang; }
-            synth.speak(u);
-          };
-          if (synth.getVoices().length > 0) trySpeak();
-          else {
-            synth.addEventListener('voiceschanged', trySpeak, { once: true });
-            setTimeout(trySpeak, 1500);
-          }
-        }
-
-        // Mark as read after 3s
+        // Try immediately; if Chrome blocks it, speakNow queues it for next click
+        speakNow(text);
         setTimeout(() => notifApi.markRead(msg.id).catch(() => {}), 3000);
       }
     } catch { /* silent */ }
-  }, [employee]);
+  }, [employee, speakNow]);
 
   useEffect(() => {
     if (!employee?._id) return;
-    pollVoiceMessages(); // immediate first poll
-    const interval = setInterval(pollVoiceMessages, 30000); // then every 30s
+    pollVoiceMessages();
+    const interval = setInterval(pollVoiceMessages, 30000);
     return () => clearInterval(interval);
   }, [employee, pollVoiceMessages]);
 
