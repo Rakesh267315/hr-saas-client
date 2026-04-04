@@ -5,7 +5,7 @@ import { useAuthStore } from '@/store/authStore';
 import { attendanceApi, leaveApi, payrollApi, breakApi, settingsApi, faceApi } from '@/lib/api';
 import Badge from '@/components/ui/Badge';
 import { fmtDate, fmtCurrency } from '@/lib/utils';
-import { voiceCheckIn, voiceCheckOut, voiceBreakStart, voiceBreakEnd } from '@/lib/voice';
+import { voiceCheckIn, voiceCheckOut, voiceBreakStart, voiceBreakEnd, unlockAndSpeak } from '@/lib/voice';
 import toast from 'react-hot-toast';
 import {
   LogIn, LogOut, Calendar, IndianRupee,
@@ -57,37 +57,14 @@ export default function EmployeeDashboard() {
 
   const now = new Date();
 
-  // ── Voice unlock (must be called directly from a user click) ─────────────
+  // ── Voice unlock ─────────────────────────────────────────────────────────
+  // Must be called directly from a user-click event to unlock browser audio
   const enableVoice = () => {
-    if (typeof window === 'undefined' || !window.speechSynthesis) return;
-    const synth = window.speechSynthesis;
-    if (synth.paused) synth.resume();
-    synth.cancel();
-
-    // Force-load voices (Chrome loads them lazily — must be triggered once)
-    const trySpeak = () => {
-      const voices = synth.getVoices();
-      const u  = new SpeechSynthesisUtterance('Voice notifications enabled. Hello!');
-      u.lang   = 'en-IN';
-      u.volume = 1;
-      u.rate   = 0.9;
-      const best = voices.find(v => v.name.includes('Google') && v.lang.startsWith('en'))
-                || voices.find(v => v.lang.startsWith('en-'))
-                || null;
-      if (best) u.voice = best;
-      synth.speak(u);
-    };
-
-    if (synth.getVoices().length > 0) {
-      trySpeak();
-    } else {
-      // Chrome fires voiceschanged when voices are ready
-      synth.addEventListener('voiceschanged', trySpeak, { once: true });
-    }
-
     setVoiceEnabled(true);
     localStorage.setItem('hrflow_voice', 'true');
-    toast.success('🔊 Voice enabled! You will hear announcements on check-in/out.');
+    toast.success('🔊 Voice notifications enabled!');
+    // Unlock browser audio + pick best available voice
+    unlockAndSpeak('Voice notifications enabled. Hello! Have a great day!');
   };
 
   const disableVoice = () => {

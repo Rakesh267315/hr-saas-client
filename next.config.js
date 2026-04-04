@@ -11,25 +11,6 @@ const nextConfig = {
       },
     ];
   },
-  // ── Kokoro-js / @huggingface/transformers WASM support ────────────────────
-  webpack: (config, { isServer }) => {
-    // Kokoro-js uses fs/promises and path — ignore them in browser bundle
-    if (!isServer) {
-      config.resolve.fallback = {
-        ...config.resolve.fallback,
-        fs: false,
-        path: false,
-        crypto: false,
-      };
-    }
-    // Enable WASM (needed by onnxruntime-web inside @huggingface/transformers)
-    config.experiments = {
-      ...config.experiments,
-      asyncWebAssembly: true,
-      layers: true,
-    };
-    return config;
-  },
 };
 
 module.exports = nextConfig;
