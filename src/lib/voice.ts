@@ -1,61 +1,61 @@
-// ── Voice Notification Utility (Web Speech API — 100% free, no API key) ───────
+// ── Voice Notification Utility (Web Speech API — 100% free) ──────────────────
+// IMPORTANT: speak() must stay synchronous — Chrome blocks speech if called
+// after any await (user-gesture context is lost across async boundaries).
 
-function doSpeak(message: string, voice: SpeechSynthesisVoice | null) {
-  window.speechSynthesis.cancel();
+let _voice: SpeechSynthesisVoice | null = null;
+let _voicesReady = false;
 
-  const utterance     = new SpeechSynthesisUtterance(message);
-  utterance.lang      = 'en-IN';
-  utterance.rate      = 0.92;
-  utterance.pitch     = 1.05;
-  utterance.volume    = 1;
-  if (voice) utterance.voice = voice;
-
-  // Chrome bug workaround: cancel + small delay before speaking
-  setTimeout(() => window.speechSynthesis.speak(utterance), 100);
+function pickVoice(voices: SpeechSynthesisVoice[]): SpeechSynthesisVoice | null {
+  return (
+    voices.find(v => v.lang === 'en-IN') ||
+    voices.find(v => v.name.toLowerCase().includes('heera')) ||
+    voices.find(v => v.name.toLowerCase().includes('ravi')) ||
+    voices.find(v => v.name.toLowerCase().includes('india')) ||
+    voices.find(v => v.lang.startsWith('en-')) ||
+    voices[0] ||
+    null
+  );
 }
 
-function getBestVoice(): Promise<SpeechSynthesisVoice | null> {
-  return new Promise((resolve) => {
-    const pick = (voices: SpeechSynthesisVoice[]) => {
-      return (
-        voices.find(v => v.lang === 'en-IN') ||
-        voices.find(v => v.name.toLowerCase().includes('heera')) ||
-        voices.find(v => v.name.toLowerCase().includes('ravi')) ||
-        voices.find(v => v.name.toLowerCase().includes('india')) ||
-        voices.find(v => v.lang.startsWith('en')) ||
-        null
-      );
-    };
-
-    const voices = window.speechSynthesis.getVoices();
-    if (voices.length > 0) {
-      resolve(pick(voices));
-      return;
-    }
-
-    // Voices not loaded yet — wait for voiceschanged event (Chrome)
+// Pre-load voices as early as possible (module import time)
+if (typeof window !== 'undefined' && window.speechSynthesis) {
+  const voices = window.speechSynthesis.getVoices();
+  if (voices.length > 0) {
+    _voice = pickVoice(voices);
+    _voicesReady = true;
+  } else {
+    // Chrome loads voices asynchronously — cache when ready
     window.speechSynthesis.onvoiceschanged = () => {
-      resolve(pick(window.speechSynthesis.getVoices()));
+      _voice = pickVoice(window.speechSynthesis.getVoices());
+      _voicesReady = true;
     };
-
-    // Fallback: if event never fires within 1s, speak with default voice
-    setTimeout(() => resolve(null), 1000);
-  });
+  }
 }
 
-export async function speak(message: string) {
-  if (typeof window === 'undefined') return;
-  if (!window.speechSynthesis) return;
+// ── Core speak (SYNCHRONOUS — must be called directly from user gesture) ──────
+export function speak(message: string) {
+  if (typeof window === 'undefined' || !window.speechSynthesis) return;
 
-  const voice = await getBestVoice();
-  doSpeak(message, voice);
+  const synth = window.speechSynthesis;
+  synth.cancel();
+
+  const u    = new SpeechSynthesisUtterance(message);
+  u.lang     = 'en-IN';
+  u.rate     = 0.9;
+  u.pitch    = 1;
+  u.volume   = 1;
+
+  // Use cached voice if ready, else let browser pick default
+  if (_voice) u.voice = _voice;
+
+  synth.speak(u);
 }
 
-// ── Pre-built messages ─────────────────────────────────────────────────────────
+// ── Pre-built messages ────────────────────────────────────────────────────────
 
 export function voiceCheckIn(name: string, time: string, lateMinutes?: number) {
-  const hour     = new Date().getHours();
-  const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
+  const h        = new Date().getHours();
+  const greeting = h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening';
   const lateMsg  = lateMinutes && lateMinutes > 0
     ? ` You are ${lateMinutes} minutes late today.`
     : ' You are right on time!';
@@ -70,9 +70,9 @@ export function voiceCheckOut(name: string, time: string, workHours?: number) {
 }
 
 export function voiceBreakStart(name: string) {
-  speak(`Enjoy your break ${name}! You deserve it. Come back refreshed!`);
+  speak(`Enjoy your break ${name}! Come back refreshed!`);
 }
 
 export function voiceBreakEnd(name: string) {
-  speak(`Welcome back ${name}! Break time is over. Let's get back to work. You are doing great!`);
+  speak(`Welcome back ${name}! Lets get back to work. You are doing great!`);
 }
