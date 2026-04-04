@@ -396,7 +396,7 @@ function BackdateEntryModal({ initialDate, onClose, onDone }: {
                   onChange={e => { setDate(e.target.value); setLoaded(false); setEntries([]); }}
                   className="input text-sm" />
               </div>
-              <button onClick={load} disabled={!date || loading}
+              <button onClick={() => load()} disabled={!date || loading}
                 className="btn-primary text-sm flex items-center gap-2 disabled:opacity-50">
                 {loading
                   ? <><RefreshCw className="w-4 h-4 animate-spin" />Loading…</>
