@@ -120,8 +120,11 @@ export default function EmployeeDashboard() {
   useEffect(() => { loadData(); loadToday(); }, [employee]);
 
   // ── Voice Message Polling ─────────────────────────────────────────────────
-  // Chrome blocks speechSynthesis without a prior user gesture.
-  // Solution: queue pending messages, play on next user click if blocked.
+  // Strategy: when a new admin voice message arrives →
+  //   1. Save text + id in sessionStorage
+  //   2. Reload the page (fresh load = Chrome speech allowed)
+  //   3. On mount, read sessionStorage → speak immediately
+  //   4. Fallback: if still blocked → plays on next user click
   const playedIds    = useRef<Set<string>>(new Set());
   const pendingVoice = useRef<string[]>([]);
 
@@ -132,8 +135,7 @@ export default function EmployeeDashboard() {
     synth.cancel();
     const u = new SpeechSynthesisUtterance(text);
     u.lang = 'en-US'; u.volume = 1; u.rate = 0.88; u.pitch = 1.0;
-    u.onerror = (e) => {
-      // If blocked by Chrome autoplay policy → keep in queue for next user click
+    u.onerror = (e: SpeechSynthesisErrorEvent) => {
       if (e.error === 'not-allowed' || e.error === 'canceled') {
         if (!pendingVoice.current.includes(text)) pendingVoice.current.push(text);
       }
@@ -152,15 +154,29 @@ export default function EmployeeDashboard() {
     else { synth.addEventListener('voiceschanged', doSpeak, { once: true }); setTimeout(doSpeak, 1500); }
   }, []);
 
-  // On ANY user click → play any pending voice messages
+  // On any user click → play queued voice (fallback for Chrome autoplay block)
   useEffect(() => {
     const onUserClick = () => {
-      if (pendingVoice.current.length === 0) return;
+      if (!pendingVoice.current.length) return;
       const text = pendingVoice.current.shift()!;
       speakNow(text);
     };
     document.addEventListener('click', onUserClick);
     return () => document.removeEventListener('click', onUserClick);
+  }, [speakNow]);
+
+  // On mount → check if page was reloaded by a voice message trigger
+  useEffect(() => {
+    const pending = sessionStorage.getItem('hr_voice_pending');
+    if (!pending) return;
+    sessionStorage.removeItem('hr_voice_pending');
+    try {
+      const { text, id } = JSON.parse(pending);
+      playedIds.current.add(id); // prevent poll from processing it again
+      notifApi.markRead(id).catch(() => {});
+      // Small delay so page fully mounts before speaking
+      setTimeout(() => speakNow(text), 800);
+    } catch { /* ignore */ }
   }, [speakNow]);
 
   const pollVoiceMessages = useCallback(async () => {
@@ -172,12 +188,13 @@ export default function EmployeeDashboard() {
         if (playedIds.current.has(msg.id)) continue;
         playedIds.current.add(msg.id);
         const text = `Attention ${employee?.firstName || ''}! ${msg.message}`;
-        // Try immediately; if Chrome blocks it, speakNow queues it for next click
-        speakNow(text);
-        setTimeout(() => notifApi.markRead(msg.id).catch(() => {}), 3000);
+        // Save to sessionStorage then reload → fresh page context = speech allowed
+        sessionStorage.setItem('hr_voice_pending', JSON.stringify({ text, id: msg.id }));
+        window.location.reload();
+        return; // reload is happening, stop processing
       }
     } catch { /* silent */ }
-  }, [employee, speakNow]);
+  }, [employee]);
 
   useEffect(() => {
     if (!employee?._id) return;
