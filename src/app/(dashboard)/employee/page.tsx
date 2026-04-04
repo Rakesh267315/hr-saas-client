@@ -9,7 +9,7 @@ import { voiceCheckIn, voiceCheckOut, voiceBreakStart, voiceBreakEnd, unlockAndS
 import toast from 'react-hot-toast';
 import {
   LogIn, LogOut, Calendar, IndianRupee,
-  Coffee, Building2, Play, Pause, Loader2, ScanFace, ChevronRight, Volume2, VolumeX,
+  Coffee, Building2, Play, Pause, Loader2, ScanFace, ChevronRight, Volume2, VolumeX, Mic, X,
 } from 'lucide-react';
 
 // Lazy-load face components — they import face-api.js (browser-only)
@@ -120,8 +120,35 @@ export default function EmployeeDashboard() {
   useEffect(() => { loadData(); loadToday(); }, [employee]);
 
   // ── Voice Message Polling ─────────────────────────────────────────────────
-  // Polls every 30s for unread voice messages from admin, plays them via voice
+  // Polls every 30s; unread voice messages show a banner + auto-play voice
+  const [voiceBanners, setVoiceBanners] = useState<{ id: string; title: string; message: string; text: string }[]>([]);
   const playedIds = useRef<Set<string>>(new Set());
+
+  // Helper: speak a text string (safe to call from ANY context — auto/user-click)
+  const speakText = useCallback((text: string) => {
+    if (typeof window === 'undefined' || !window.speechSynthesis) return;
+    const synth = window.speechSynthesis;
+    if (synth.paused) synth.resume();
+    synth.cancel();
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = 'en-US'; u.volume = 1; u.rate = 0.85; u.pitch = 1.05;
+    const trySpeak = () => {
+      const voices = synth.getVoices();
+      const best = voices.find(v => v.name.includes('Google') && v.lang.startsWith('en'))
+                || voices.find(v => v.name.includes('Microsoft') && v.name.includes('Neural') && v.lang.startsWith('en'))
+                || voices.find(v => v.name === 'Samantha')
+                || voices.find(v => v.lang.startsWith('en')) || null;
+      if (best) { u.voice = best; u.lang = best.lang; }
+      synth.speak(u);
+    };
+    if (synth.getVoices().length > 0) {
+      trySpeak();
+    } else {
+      synth.addEventListener('voiceschanged', trySpeak, { once: true });
+      setTimeout(trySpeak, 1500); // fallback if voiceschanged never fires
+    }
+  }, []);
+
   const pollVoiceMessages = useCallback(async () => {
     if (!employee?._id) return;
     try {
@@ -130,28 +157,21 @@ export default function EmployeeDashboard() {
       for (const msg of messages) {
         if (playedIds.current.has(msg.id)) continue;
         playedIds.current.add(msg.id);
-        // Show toast
-        toast(`🎙️ ${msg.title}`, { duration: 6000, icon: '📢' });
-        // Play voice — works whether voiceEnabled or not (admin message is important!)
-        const text = `Attention ${employee?.firstName || ''}! Message from admin: ${msg.message}`;
-        if (typeof window !== 'undefined' && window.speechSynthesis) {
-          const synth = window.speechSynthesis;
-          if (synth.paused) synth.resume();
-          synth.cancel();
-          const u  = new SpeechSynthesisUtterance(text);
-          u.lang   = 'en-US'; u.volume = 1; u.rate = 0.85; u.pitch = 1.05;
-          const voices = synth.getVoices();
-          const best = voices.find(v => v.name.includes('Google') && v.lang.startsWith('en'))
-                    || voices.find(v => v.name === 'Samantha')
-                    || voices.find(v => v.lang.startsWith('en')) || null;
-          if (best) u.voice = best;
-          synth.speak(u);
-        }
-        // Mark as read after 2s
-        setTimeout(() => notifApi.markRead(msg.id).catch(() => {}), 2000);
+        const text = `Attention ${employee?.firstName || ''}! Message from your admin: ${msg.message}`;
+        // Add banner (stays until dismissed)
+        setVoiceBanners(prev => [...prev, { id: msg.id, title: msg.title, message: msg.message, text }]);
+        // Auto-play voice (works after any prior user interaction on the page)
+        speakText(text);
+        // Mark as read after 3s
+        setTimeout(() => notifApi.markRead(msg.id).catch(() => {}), 3000);
       }
     } catch { /* silent */ }
-  }, [employee]);
+  }, [employee, speakText]);
+
+  const dismissVoiceBanner = useCallback((id: string) => {
+    setVoiceBanners(prev => prev.filter(b => b.id !== id));
+    window.speechSynthesis?.cancel();
+  }, []);
 
   useEffect(() => {
     if (!employee?._id) return;
@@ -266,6 +286,39 @@ export default function EmployeeDashboard() {
 
   return (
     <div>
+      {/* ── Admin Voice Message Banners ──────────────────────────────────── */}
+      {voiceBanners.map(banner => (
+        <div
+          key={banner.id}
+          className="mb-4 flex items-start gap-3 bg-purple-50 border-2 border-purple-300 rounded-2xl px-4 py-4 shadow-lg animate-pulse-once"
+        >
+          <div className="w-10 h-10 bg-purple-100 rounded-xl flex items-center justify-center shrink-0 mt-0.5">
+            <Mic className="w-5 h-5 text-purple-600" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-bold text-purple-800">{banner.title}</p>
+            <p className="text-sm text-purple-700 mt-0.5">{banner.message}</p>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            {/* Re-play button (user gesture → always works in Chrome) */}
+            <button
+              onClick={() => speakText(banner.text)}
+              title="Play voice message"
+              className="flex items-center gap-1.5 text-xs font-semibold bg-purple-600 hover:bg-purple-700 text-white px-3 py-1.5 rounded-lg transition-colors"
+            >
+              <Volume2 className="w-3.5 h-3.5" /> Play
+            </button>
+            <button
+              onClick={() => dismissVoiceBanner(banner.id)}
+              title="Dismiss"
+              className="p-1.5 hover:bg-purple-100 rounded-lg text-purple-400 hover:text-purple-600 transition-colors"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      ))}
+
       {/* Header */}
       <div className="flex items-start justify-between mb-6">
         <div>
