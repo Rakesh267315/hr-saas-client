@@ -61,22 +61,39 @@ export default function EmployeeDashboard() {
   const enableVoice = () => {
     if (typeof window === 'undefined' || !window.speechSynthesis) return;
     const synth = window.speechSynthesis;
-    // Resume if Chrome paused it, then warm up
     if (synth.paused) synth.resume();
     synth.cancel();
-    const u  = new SpeechSynthesisUtterance('Voice notifications enabled');
-    u.lang   = 'en-IN';
-    u.volume = 1;
-    synth.speak(u);
+
+    // Force-load voices (Chrome loads them lazily — must be triggered once)
+    const trySpeak = () => {
+      const voices = synth.getVoices();
+      const u  = new SpeechSynthesisUtterance('Voice notifications enabled. Hello!');
+      u.lang   = 'en-IN';
+      u.volume = 1;
+      u.rate   = 0.9;
+      const best = voices.find(v => v.name.includes('Google') && v.lang.startsWith('en'))
+                || voices.find(v => v.lang.startsWith('en-'))
+                || null;
+      if (best) u.voice = best;
+      synth.speak(u);
+    };
+
+    if (synth.getVoices().length > 0) {
+      trySpeak();
+    } else {
+      // Chrome fires voiceschanged when voices are ready
+      synth.addEventListener('voiceschanged', trySpeak, { once: true });
+    }
+
     setVoiceEnabled(true);
     localStorage.setItem('hrflow_voice', 'true');
-    toast.success('🔊 Voice notifications enabled!');
+    toast.success('🔊 Voice enabled! You will hear announcements on check-in/out.');
   };
 
   const disableVoice = () => {
     window.speechSynthesis?.cancel();
     setVoiceEnabled(false);
-    localStorage.setItem('hrflow_voice', 'false');  // 💾 Save setting
+    localStorage.setItem('hrflow_voice', 'false');
     toast('🔇 Voice notifications disabled');
   };
 
